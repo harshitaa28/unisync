@@ -1,0 +1,2337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniSync — Verified Campus Hub</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-canvas: #F8FAFC;
+      --surface: #FFFFFF;
+      --border: #E6E8F0;
+      --ink: #111827;
+      --muted: #6B7280;
+      --indigo: #0D9488;
+      --teal-dark: #0F766E;
+      --teal-soft: #F0FDFA;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(1200px 520px at 50% -80px, #CCFBF1 0%, #F8FAFC 60%);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    .tw-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(13, 148, 136, 0.06);
+    }
+    .tw-card-sm {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .tw-underline {
+      position: relative;
+      display: inline-block;
+    }
+    .tw-underline::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
+      height: 8px;
+      background: rgba(20, 184, 166, 0.26);
+      border-radius: 999px;
+      z-index: -1;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .btn-primary {
+      background: var(--indigo);
+      color: #fff;
+      border-radius: 12px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .btn-primary:hover { background: var(--teal-dark); }
+    .btn-secondary {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .btn-secondary:hover { background: #F9FAFB; border-color: #D1D5DB; }
+    .nav-pill {
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #4B5563;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .nav-pill:hover { background: #F0FDFA; color: var(--teal-dark); }
+    .nav-pill.active { background: var(--teal-soft); color: var(--teal-dark); font-weight: 600; }
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes softPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.35); opacity: 0.65; }
+    }
+    main { animation: fadeSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    .tw-card {
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .tw-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 34px rgba(13, 148, 136, 0.09);
+    }
+    .btn-primary, .btn-secondary {
+      transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn-primary:active, .btn-secondary:active {
+      transform: scale(0.98);
+    }
+    .live-dot {
+      animation: softPulse 2.2s ease-in-out infinite;
+    }
+    .map-pin {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .map-pin:hover { transform: translateY(-2px) scale(1.04); }
+  </style>
+</head>
+<body class="antialiased">
+  <div id="app"></div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <script>
+    // =========================================================================
+    // 1. STATE & DUAL-MODE API ENGINE (Live Node+SQLite OR In-Browser Fallback)
+    // =========================================================================
+    const DEMO_NOW = new Date('2026-11-18T15:00:00');
+    const isStaticHost = window.location.hostname.endsWith('github.io') ||
+      window.location.hostname.endsWith('netlify.app') ||
+      window.location.hostname.endsWith('vercel.app');
+    const isLiveBackend = window.location.protocol.startsWith('http') &&
+      window.location.hostname !== '' &&
+      !window.location.href.includes('srcdoc') &&
+      !isStaticHost;
+
+    let state = {
+      view: 'landing',
+      userId: null,
+      selectedEventId: null,
+      selectedCommunityId: 'c_coding',
+      selectedVenueId: 'v_placement',
+      adminTab: 'notices',
+      adminManageTab: 'clubs',
+      adminAutoTab: 'reminders',
+      exploreFilters: {
+        category: 'All',
+        department: 'All',
+        year: 'All',
+        tag: 'All',
+        sort: 'relevant',
+        search: ''
+      },
+      data: null,
+      backendMode: isLiveBackend ? 'Node.js + SQLite' : 'Interactive Preview'
+    };
+
+    try {
+      const savedUid = localStorage.getItem('unisync_uid');
+      if (savedUid) state.userId = savedUid;
+    } catch (e) {}
+
+    function showToast(msg, tone = 'teal') {
+      const wrap = document.getElementById('toast-container');
+      const colors = {
+        indigo: 'bg-teal-600 text-white',
+        emerald: 'bg-emerald-600 text-white',
+        amber: 'bg-amber-500 text-white',
+        rose: 'bg-rose-600 text-white'
+      };
+      const el = document.createElement('div');
+      el.className = `${colors[tone] || colors.indigo} px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center justify-between gap-3`;
+      el.innerHTML = `<span>${escapeHtml(msg)}</span>`;
+      wrap.appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // Seed data for standalone Canvas preview mode
+    function createFallbackData() {
+      return {
+        users: [
+          { id: 'u_student', name: 'Kabir Sharma', email: 'kabir.sharma@college.edu', role: 'student', department: 'CSE', year: '3rd Year', interests: ['AI/ML', 'Placements', 'Hackathons', 'Web Dev'], whatsapp_opt_in: true, quiet_hours: '22:00 - 07:00', onboarded: true },
+          { id: 'u_rep', name: 'Devansh Nair', email: 'devansh.nair@college.edu', role: 'club_rep', department: 'CSE', year: '3rd Year', interests: ['Hackathons', 'Web Dev'], whatsapp_opt_in: true, quiet_hours: '23:00 - 07:00', onboarded: true },
+          { id: 'u_faculty', name: 'Prof. Ananya Rao', email: 'ananya.rao@college.edu', role: 'faculty', department: 'CSE', year: 'Faculty', interests: ['AI/ML', 'Workshops'], whatsapp_opt_in: true, quiet_hours: '21:00 - 08:00', onboarded: true },
+          { id: 'u_admin', name: 'Siddharth Joshi', email: 'siddharth.joshi@college.edu', role: 'admin', department: 'Placements & Hackathons', year: 'Staff', interests: ['Placements', 'Hackathons'], whatsapp_opt_in: true, quiet_hours: '22:00 - 07:00', onboarded: true },
+          { id: 'u_admin_exam', name: 'Meera Iyer', email: 'meera.iyer@college.edu', role: 'admin', department: 'Exams & Timetable', year: 'Staff', interests: ['Academics'], whatsapp_opt_in: true, quiet_hours: '22:00 - 07:00', onboarded: true },
+          { id: 'u_admin_venue', name: 'Karan Malhotra', email: 'karan.malhotra@college.edu', role: 'admin', department: 'Events & Auditorium', year: 'Staff', interests: ['Clubs', 'Workshops'], whatsapp_opt_in: true, quiet_hours: '22:00 - 07:00', onboarded: true }
+        ],
+        tags: [
+          { id: 't_1', name: 'AI/ML', color: 'teal', active: 1 },
+          { id: 't_2', name: 'Placements', color: 'emerald', active: 1 },
+          { id: 't_3', name: 'Hackathons', color: 'violet', active: 1 },
+          { id: 't_4', name: 'Web Dev', color: 'sky', active: 1 },
+          { id: 't_5', name: 'Internships', color: 'amber', active: 1 },
+          { id: 't_6', name: 'Workshops', color: 'teal', active: 1 },
+          { id: 't_7', name: 'Robotics', color: 'rose', active: 1 },
+          { id: 't_8', name: 'Design', color: 'pink', active: 1 }
+        ],
+        clubs: [
+          { id: 'c_coding', name: 'Coding Club', description: 'Competitive programming, full-stack sprints, and campus hackathons.', rep_id: 'u_rep', coordinator_id: 'u_faculty', requires_admin_check: 1, join_mode: 'instant', whatsapp_link: 'https://chat.whatsapp.com/coding-club-invite-demo', member_count: 142 },
+          { id: 'c_robotics', name: 'Robotics Society', description: 'Autonomous bots, embedded systems, and hardware prototyping.', rep_id: 'u_rep', coordinator_id: 'u_faculty', requires_admin_check: 0, join_mode: 'request', whatsapp_link: 'https://chat.whatsapp.com/robotics-soc-invite-demo', member_count: 86 },
+          { id: 'c_placement', name: 'Placement Prep Cell', description: 'Mock interviews, resume reviews, and verified placement drives.', rep_id: 'u_rep', coordinator_id: 'u_faculty', requires_admin_check: 1, join_mode: 'request', whatsapp_link: 'https://chat.whatsapp.com/placement-cell-invite-demo', member_count: 310 },
+          { id: 'c_design', name: 'Design & UI Guild', description: 'Product design critiques, Figma jams, and portfolio reviews.', rep_id: 'u_rep', coordinator_id: 'u_faculty', requires_admin_check: 0, join_mode: 'instant', whatsapp_link: 'https://chat.whatsapp.com/design-guild-invite-demo', member_count: 64 }
+        ],
+        routes: [
+          { category: 'Placements', reviewer_role: 'admin', auto_notify_whatsapp: 1 },
+          { category: 'Academics', reviewer_role: 'admin', auto_notify_whatsapp: 1 },
+          { category: 'Hackathons', reviewer_role: 'faculty_then_admin', auto_notify_whatsapp: 0 },
+          { category: 'Workshops', reviewer_role: 'faculty', auto_notify_whatsapp: 0 },
+          { category: 'Clubs', reviewer_role: 'faculty_then_admin', auto_notify_whatsapp: 0 },
+          { category: 'General', reviewer_role: 'admin', auto_notify_whatsapp: 0 }
+        ],
+        events: [
+          {
+            id: 'e_zenith', title: 'Mega Hiring Drive: Zenith Corp',
+            description: "Forwarded message circulating on student groups claiming a Rs 18 LPA package with immediate onboarding. Asks students to pay a Rs 499 'assessment verification fee' via an external UPI link.",
+            category: 'Placements', department: 'CSE', target_year: '3rd Year',
+            event_date: '2026-11-24 10:00', deadline: '2026-11-20 18:00',
+            venue: 'Placement Cell', venue_id: 'v_placement',
+            registration_link: 'https://example.com/zenith-form-unverified',
+            source_doc: 'Forwarded WhatsApp Notice (Unverified)', attachment_url: '',
+            status: 'Pending review',
+            red_flags: ['Registration fee requested (Rs 499)', 'Unverified external form domain', 'Not listed on Placement Cell portal'],
+            tags: ['Placements', 'Internships'], is_free: false, club_id: null, author_id: 'u_student',
+            reviewer_comment: '',
+            history: [{ actor: 'System', action: 'Flagged suspicious forward', time: '2026-11-17 10:00' }],
+            acknowledged_by: [], reached_count: 0, created_at: '2026-11-17 10:00'
+          },
+          {
+            id: 'e_nimbus', title: 'Nimbus Labs Summer Internship 2027',
+            description: 'Official 8-week software engineering internship for 3rd year CSE and IT students. Stipend Rs 35,000/month. Resume shortlisting followed by two technical rounds.',
+            category: 'Placements', department: 'CSE', target_year: '3rd Year',
+            event_date: '2026-11-28 09:30', deadline: '2026-11-21 23:59',
+            venue: 'Placement Cell', venue_id: 'v_placement',
+            registration_link: 'https://example.com/nimbus-official-apply',
+            source_doc: 'Placement Cell Circular #PC-2026-41', attachment_url: '',
+            status: 'Pending review',
+            red_flags: [],
+            tags: ['Placements', 'Internships', 'Web Dev'], is_free: true, club_id: null, author_id: 'u_faculty',
+            reviewer_comment: '',
+            history: [{ actor: 'Prof. Ananya Rao', action: 'Submitted with circular #PC-2026-41', time: '2026-11-17 08:00' }],
+            acknowledged_by: ['u_student'], reached_count: 128, created_at: '2026-11-17 08:00'
+          },
+          {
+            id: 'e_nimbus_dup', title: 'Nimbus Labs Internship (CSE Group Forward)',
+            description: 'Duplicate notice for Nimbus Labs Summer Internship 2027 shared via department broadcast. Same eligibility and Placement Cell circular.',
+            category: 'Placements', department: 'CSE', target_year: '3rd Year',
+            event_date: '2026-11-28 09:30', deadline: '2026-11-21 23:59',
+            venue: 'Placement Cell', venue_id: 'v_placement',
+            registration_link: 'https://example.com/nimbus-official-apply',
+            source_doc: 'Department Broadcast', attachment_url: '',
+            status: 'Pending review',
+            red_flags: ['Possible duplicate of Nimbus Labs Summer Internship 2027'],
+            tags: ['Placements', 'Internships'], is_free: true, club_id: null, author_id: 'u_student',
+            reviewer_comment: '',
+            history: [{ actor: 'System', action: 'Detected duplicate match', time: '2026-11-17 11:00' }],
+            acknowledged_by: [], reached_count: 0, created_at: '2026-11-17 11:00'
+          },
+          {
+            id: 'e_hackathon', title: 'UniHack 2026: Campus AI & Systems Sprint',
+            description: '24-hour student hackathon hosted by Coding Club. Build practical campus tools with mentorship from faculty and alumni. Free entry, meals included, Rs 50,000 prize pool.',
+            category: 'Hackathons', department: 'All', target_year: 'All',
+            event_date: '2026-11-29 09:00', deadline: '2026-11-20 20:00',
+            venue: 'Main Auditorium', venue_id: 'v_auditorium',
+            registration_link: 'https://example.com/unihack-2026',
+            source_doc: 'Dean Student Affairs Approval #DSA-19', attachment_url: '',
+            status: 'Verified',
+            red_flags: [],
+            tags: ['Hackathons', 'AI/ML', 'Web Dev'], is_free: true, club_id: 'c_coding', author_id: 'u_rep',
+            reviewer_comment: 'Approved and verified for campus-wide broadcast.',
+            history: [
+              { actor: 'Devansh Nair', action: 'Submitted event', time: '2026-11-15 10:00' },
+              { actor: 'Prof. Ananya Rao', action: 'Faculty approved', time: '2026-11-16 11:00' },
+              { actor: 'Siddharth Joshi', action: 'Admin verified & published', time: '2026-11-16 14:00' }
+            ],
+            acknowledged_by: ['u_student'], reached_count: 412, created_at: '2026-11-15 10:00'
+          },
+          {
+            id: 'e_ml_workshop', title: 'Hands-On LLM & RAG Systems Workshop',
+            description: 'Interactive 3-hour technical workshop on building retrieval-augmented generation pipelines with open-source models. Bring your laptop.',
+            category: 'Workshops', department: 'CSE', target_year: '3rd Year',
+            event_date: '2026-11-23 14:00', deadline: '2026-11-22 17:00',
+            venue: 'CS Seminar Hall', venue_id: 'v_cs_block',
+            registration_link: 'https://example.com/llm-rag-workshop',
+            source_doc: 'CSE Department Notice #CSE-88', attachment_url: '',
+            status: 'Verified',
+            red_flags: [],
+            tags: ['AI/ML', 'Workshops'], is_free: true, club_id: 'c_coding', author_id: 'u_faculty',
+            reviewer_comment: 'Verified official department workshop.',
+            history: [{ actor: 'Prof. Ananya Rao', action: 'Published workshop', time: '2026-11-16 09:00' }],
+            acknowledged_by: ['u_student'], reached_count: 215, created_at: '2026-11-16 09:00'
+          },
+          {
+            id: 'e_exam_schedule', title: 'End-Semester Practical Exam Schedule (Sem 5 & 6)',
+            description: 'Official timetable for November-December laboratory practical examinations across CSE, IT, and ECE departments.',
+            category: 'Academics', department: 'All', target_year: '3rd Year',
+            event_date: '2026-12-02 09:00', deadline: '2026-11-25 17:00',
+            venue: 'Admin Block', venue_id: 'v_admin',
+            registration_link: 'https://example.com/exam-timetable-pdf',
+            source_doc: 'Controller of Examinations Circular #COE-12', attachment_url: '',
+            status: 'Verified',
+            red_flags: [],
+            tags: ['Workshops'], is_free: true, club_id: null, author_id: 'u_admin',
+            reviewer_comment: 'Official COE circular.',
+            history: [{ actor: 'Siddharth Joshi', action: 'Published & Verified', time: '2026-11-14 10:00' }],
+            acknowledged_by: ['u_student'], reached_count: 640, created_at: '2026-11-14 10:00'
+          },
+          {
+            id: 'e_robotics_draft', title: 'Autonomous Rover Build Night',
+            description: 'Hands-on evening session assembling ROS2 rover kits for the inter-college robotics challenge.',
+            category: 'Clubs', department: 'All', target_year: 'All',
+            event_date: '2026-11-26 17:30', deadline: '2026-11-25 12:00',
+            venue: 'Innovation Lab', venue_id: 'v_innovation',
+            registration_link: 'https://example.com/rover-night',
+            source_doc: 'Lab Booking #LAB-04', attachment_url: '',
+            status: 'Pending faculty review',
+            red_flags: [],
+            tags: ['Robotics', 'Workshops'], is_free: true, club_id: 'c_robotics', author_id: 'u_rep',
+            reviewer_comment: '',
+            history: [{ actor: 'Devansh Nair', action: 'Submitted to Prof. Ananya Rao', time: '2026-11-18 07:00' }],
+            acknowledged_by: [], reached_count: 0, created_at: '2026-11-18 07:00'
+          }
+        ],
+        tickets: [
+          {
+            id: 'TKT-101', event_id: 'e_zenith', event_title: 'Mega Hiring Drive: Zenith Corp',
+            student_id: 'u_student', student_name: 'Kabir Sharma', assigned_admin_id: 'u_admin', assigned_admin_name: 'Siddharth Joshi',
+            question: 'This Zenith Corp link is circulating on our class WhatsApp group asking for Rs 499. Is it genuine?',
+            status: 'Open',
+            messages: [{ sender: 'Kabir Sharma', role: 'student', text: 'This Zenith Corp link is circulating on our class WhatsApp group asking for Rs 499. Is it genuine?', time: '2026-11-18 06:00' }],
+            created_at: '2026-11-18 06:00', updated_at: '2026-11-18 06:00'
+          }
+        ],
+        deadlines: [
+          { id: 'dl_1', user_id: 'u_student', event_id: 'e_hackathon', title: 'UniHack 2026: Campus AI & Systems Sprint', deadline: '2026-11-20 20:00', category: 'Hackathons', completed: 0, saved: 1 },
+          { id: 'dl_2', user_id: 'u_student', event_id: 'e_ml_workshop', title: 'Hands-On LLM & RAG Systems Workshop', deadline: '2026-11-22 17:00', category: 'Workshops', completed: 0, saved: 1 }
+        ],
+        reminders: [
+          { id: 'rem_1', user_id: 'u_student', event_id: 'e_hackathon', event_title: 'UniHack 2026: Campus AI & Systems Sprint', offset_label: '3 days before', scheduled_for: '2026-11-17 20:00', channel: 'WhatsApp + Push', status: 'Sent', message_preview: 'Reminder: UniHack 2026 registration closes in 3 days (20 Nov, 8:00 PM).', sent_at: '2026-11-17 20:00' },
+          { id: 'rem_2', user_id: 'u_student', event_id: 'e_hackathon', event_title: 'UniHack 2026: Campus AI & Systems Sprint', offset_label: '1 day before', scheduled_for: '2026-11-19 20:00', channel: 'WhatsApp + Push', status: 'Due', message_preview: 'Reminder: UniHack 2026 registration closes tomorrow at 8:00 PM!', sent_at: null },
+          { id: 'rem_3', user_id: 'u_student', event_id: 'e_hackathon', event_title: 'UniHack 2026: Campus AI & Systems Sprint', offset_label: '2 hours before', scheduled_for: '2026-11-20 18:00', channel: 'WhatsApp + Push', status: 'Scheduled', message_preview: 'Urgent: UniHack 2026 closes in 2 hours!', sent_at: null }
+        ],
+        communityMembers: [
+          { id: 'cm_1', community_id: 'c_coding', user_id: 'u_student', user_name: 'Kabir Sharma', status: 'joined' },
+          { id: 'cm_2', community_id: 'c_coding', user_id: 'u_rep', user_name: 'Devansh Nair', status: 'joined' }
+        ],
+        qaPosts: [
+          { id: 'qa_1', community_id: 'c_coding', author_id: 'u_student', author_name: 'Kabir Sharma', author_role: 'student', title: 'Can 2nd and 3rd year students form mixed teams for UniHack 2026?', body: 'Our team has two 3rd-year CSE students and one 2nd-year ECE student. Is cross-year teaming allowed?', upvotes: 7, created_at: '2026-11-16 14:00' },
+          { id: 'qa_2', community_id: 'c_placement', author_id: 'u_student', author_name: 'Kabir Sharma', author_role: 'student', title: 'What is the official Placement Cell policy on drives asking for assessment fees?', body: 'Several WhatsApp forwards ask for Rs 300-500 test fees. Does the college ever allow paid placement tests?', upvotes: 14, created_at: '2026-11-17 16:00' }
+        ],
+        qaAnswers: [
+          { id: 'ans_1', post_id: 'qa_1', author_id: 'u_rep', author_name: 'Devansh Nair', author_role: 'club_rep', body: 'Yes! Cross-year and cross-department teams of 2-4 members are welcome.', created_at: '2026-11-16 16:00' },
+          { id: 'ans_2', post_id: 'qa_2', author_id: 'u_admin', author_name: 'Siddharth Joshi', author_role: 'admin', body: "Never. Official campus placement and internship drives are 100% free. Always click 'Request verification' if any forward asks for money.", created_at: '2026-11-17 17:00' }
+        ],
+        notifications: [
+          { id: 'n_1', user_id: 'u_student', title: 'Ticket TKT-101 received', body: 'Your verification request for Mega Hiring Drive: Zenith Corp is assigned to Siddharth Joshi.', type: 'info', read: 0, created_at: '2026-11-18 06:00' },
+          { id: 'n_2', user_id: 'u_faculty', title: 'New club event awaiting review', body: "Devansh Nair submitted 'Autonomous Rover Build Night' for Robotics Society.", type: 'warning', read: 0, created_at: '2026-11-18 07:00' },
+          { id: 'n_3', user_id: 'u_admin', title: '2 items in Verification Queue', body: 'Nimbus Labs Summer Internship and Zenith Corp forward need review.', type: 'warning', read: 0, created_at: '2026-11-17 12:00' }
+        ],
+        outbox: [
+          { id: 'out_1', channel: 'WhatsApp', recipient: '+91-98XXX-XX104 (Kabir Sharma)', subject: 'UniHack 2026 Reminder (3 days)', body: 'Reminder: UniHack 2026 registration closes in 3 days (20 Nov, 8:00 PM). View on UniSync.', status: 'Simulated', created_at: '2026-11-17 20:00' },
+          { id: 'out_2', channel: 'Email', recipient: 'siddharth.joshi@college.edu', subject: '[UniSync] New Verification Ticket TKT-101', body: "Kabir Sharma flagged 'Mega Hiring Drive: Zenith Corp' for verification.", status: 'Simulated', created_at: '2026-11-18 06:00' }
+        ],
+        auditLog: [
+          { id: 'aud_1', actor_id: 'u_rep', actor_name: 'Devansh Nair', actor_role: 'club_rep', action: 'SUBMIT_EVENT', target_type: 'event', target_id: 'e_hackathon', target_title: 'UniHack 2026: Campus AI & Systems Sprint', comment: 'Submitted for faculty review', created_at: '2026-11-15 10:00' },
+          { id: 'aud_2', actor_id: 'u_faculty', actor_name: 'Prof. Ananya Rao', actor_role: 'faculty', action: 'APPROVE_CLUB_EVENT', target_type: 'event', target_id: 'e_hackathon', target_title: 'UniHack 2026: Campus AI & Systems Sprint', comment: 'Approved; routed to admin check', created_at: '2026-11-16 11:00' },
+          { id: 'aud_3', actor_id: 'u_admin', actor_name: 'Siddharth Joshi', actor_role: 'admin', action: 'VERIFY_AND_PUBLISH', target_type: 'event', target_id: 'e_hackathon', target_title: 'UniHack 2026: Campus AI & Systems Sprint', comment: 'Verified official DSA-19 approval', created_at: '2026-11-16 14:00' }
+        ],
+        timetable: [
+          { id: 'tt_1', department: 'CSE', year: '3rd Year', day: 'Today', time_slot: '09:30 - 10:30', subject: 'Operating Systems', room: 'Room 302', faculty_name: 'Prof. Ananya Rao' },
+          { id: 'tt_2', department: 'CSE', year: '3rd Year', day: 'Today', time_slot: '10:45 - 11:45', subject: 'Database Management', room: 'Room 304', faculty_name: 'Dr. Rajesh Verma' },
+          { id: 'tt_3', department: 'CSE', year: '3rd Year', day: 'Today', time_slot: '12:00 - 01:00', subject: 'Computer Networks Lab', room: 'Lab 2', faculty_name: 'Prof. Sneha Patil' },
+          { id: 'tt_4', department: 'CSE', year: '3rd Year', day: 'Today', time_slot: '02:00 - 03:00', subject: 'AI & Machine Learning', room: 'Room 302', faculty_name: 'Prof. Ananya Rao' }
+        ],
+        facultyCabins: [
+          { id: 'cab_1', faculty_id: 'u_faculty', faculty_name: 'Prof. Ananya Rao', department: 'CSE', cabin_no: 'CS-204', status: 'Available', free_slot: '03:00 PM - 04:30 PM', note: 'In cabin for project & club doubts' },
+          { id: 'cab_2', faculty_id: 'u_fac_2', faculty_name: 'Dr. Rajesh Verma', department: 'CSE', cabin_no: 'CS-208', status: 'In Lecture', free_slot: '04:00 PM - 05:00 PM', note: 'Teaching DBMS in Room 304' },
+          { id: 'cab_3', faculty_id: 'u_fac_3', faculty_name: 'Prof. Sneha Patil', department: 'CSE', cabin_no: 'CS-212', status: 'On Break', free_slot: '03:15 PM - 04:00 PM', note: 'Back at 3:15 PM' }
+        ],
+        venueSlots: [
+          { id: 'vs_1', venue_name: 'Main Auditorium', slot_time: '2026-11-29 (Full Day)', status: 'Booked', booked_by: 'UniHack 2026 (Coding Club)' },
+          { id: 'vs_2', venue_name: 'Main Auditorium', slot_time: '2026-11-30 (10:00 AM - 04:00 PM)', status: 'Available', booked_by: '' },
+          { id: 'vs_3', venue_name: 'CS Seminar Hall', slot_time: '2026-11-23 (02:00 PM - 05:00 PM)', status: 'Booked', booked_by: 'LLM & RAG Workshop' },
+          { id: 'vs_4', venue_name: 'Innovation Lab', slot_time: '2026-11-26 (05:30 PM - 08:00 PM)', status: 'Available', booked_by: '' }
+        ]
+      };
+    }
+
+    let fallbackDB = createFallbackData();
+
+    async function api(method, endpoint, body = null) {
+      if (isLiveBackend) {
+        try {
+          const opts = {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': state.userId || 'u_student'
+            }
+          };
+          if (body) opts.body = JSON.stringify(body);
+          const res = await fetch(endpoint, opts);
+          const json = await res.json();
+          if (json.error) throw new Error(json.error);
+          return json;
+        } catch (err) {
+          showToast(err.message, 'rose');
+          throw err;
+        }
+      }
+      return fallbackApi(method, endpoint, body);
+    }
+
+    function fallbackApi(method, endpoint, body) {
+      const uid = state.userId || 'u_student';
+      const user = fallbackDB.users.find(u => u.id === uid) || fallbackDB.users[0];
+      const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const addAudit = (action, ttype, tid, ttitle, comment = '') => {
+        fallbackDB.auditLog.unshift({ id: 'aud_' + Date.now(), actor_id: user.id, actor_name: user.name, actor_role: user.role, action, target_type: ttype, target_id: tid, target_title: ttitle, comment, created_at: nowStr });
+      };
+      const addNotif = (toUid, title, msg, type = 'info') => {
+        fallbackDB.notifications.unshift({ id: 'n_' + Date.now() + Math.random(), user_id: toUid, title, body: msg, type, read: 0, created_at: nowStr });
+      };
+      const addOutbox = (channel, recipient, subject, msg) => {
+        fallbackDB.outbox.unshift({ id: 'out_' + Date.now(), channel, recipient, subject, body: msg, status: 'Simulated', created_at: nowStr });
+      };
+
+      if (endpoint === '/api/bootstrap') {
+        return {
+          currentUser: user,
+          ...fallbackDB,
+          deadlines: fallbackDB.deadlines.filter(d => d.user_id === uid),
+          notifications: fallbackDB.notifications.filter(n => n.user_id === uid)
+        };
+      }
+      if (endpoint === '/api/summarize') {
+        return { summary: localSummarize(body) };
+      }
+      if (endpoint === '/api/signup') {
+        const existing = fallbackDB.users.find(u => u.email === body.email);
+        if (existing) return { user: existing };
+        const nu = { id: 'u_' + Date.now(), name: body.name || 'Campus Student', email: body.email, role: body.role || 'student', department: body.department || 'CSE', year: body.year || '3rd Year', interests: body.interests || ['AI/ML', 'Placements'], whatsapp_opt_in: true, quiet_hours: '22:00 - 07:00', onboarded: false };
+        fallbackDB.users.push(nu);
+        return { user: nu };
+      }
+      if (endpoint === '/api/profile') {
+        Object.assign(user, { department: body.department, year: body.year, interests: body.interests, whatsapp_opt_in: body.whatsapp_opt_in, quiet_hours: body.quiet_hours, onboarded: true });
+        return { ok: true };
+      }
+      if (endpoint === '/api/upload') {
+        return { ok: true, url: '#uploaded-' + (body.filename || 'doc.pdf'), filename: body.filename || 'doc.pdf' };
+      }
+      if (endpoint === '/api/events') {
+        const status = user.role === 'club_rep' ? 'Pending faculty review' : (user.role === 'admin' ? 'Verified' : 'Pending review');
+        const ev = { id: 'e_' + Date.now(), ...body, status, red_flags: [], reviewer_comment: '', author_id: uid, history: [{ actor: user.name, action: `Created (${status})`, time: nowStr }], acknowledged_by: [], reached_count: status === 'Verified' ? 120 : 0, created_at: nowStr };
+        fallbackDB.events.unshift(ev);
+        addAudit('CREATE_EVENT', 'event', ev.id, ev.title, status);
+        if (body.club_id) addNotif('u_faculty', 'New club event submitted', `${user.name} submitted '${ev.title}'.`, 'warning');
+        return { id: ev.id, status };
+      }
+      if (endpoint.endsWith('/resubmit')) {
+        const eid = endpoint.split('/')[3];
+        const ev = fallbackDB.events.find(e => e.id === eid);
+        Object.assign(ev, body);
+        ev.status = ev.club_id ? 'Pending faculty review' : 'Pending review';
+        ev.history.push({ actor: user.name, action: 'Edited & resubmitted', time: nowStr });
+        addAudit('RESUBMIT_EVENT', 'event', ev.id, ev.title, 'Resubmitted');
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/faculty-review')) {
+        const eid = endpoint.split('/')[3];
+        const ev = fallbackDB.events.find(e => e.id === eid);
+        const club = fallbackDB.clubs.find(c => c.id === ev.club_id);
+        if (body.decision === 'approve') {
+          ev.status = (club && club.requires_admin_check) ? 'Pending admin review' : 'Verified';
+          ev.history.push({ actor: user.name, action: `Faculty approved -> ${ev.status}`, time: nowStr, comment: body.comment });
+          addNotif(ev.author_id, 'Club event approved', `${user.name} approved '${ev.title}'.`, 'success');
+        } else if (body.decision === 'changes') {
+          ev.status = 'Changes requested';
+          ev.history.push({ actor: user.name, action: 'Changes requested', time: nowStr, comment: body.comment });
+          addNotif(ev.author_id, 'Changes requested', `'${ev.title}': ${body.comment}`, 'warning');
+        } else {
+          ev.status = 'Rejected';
+          ev.history.push({ actor: user.name, action: 'Rejected', time: nowStr, comment: body.comment });
+        }
+        ev.reviewer_comment = body.comment || '';
+        addAudit(`FACULTY_${body.decision.toUpperCase()}`, 'event', ev.id, ev.title, body.comment);
+        return { status: ev.status };
+      }
+      if (endpoint.endsWith('/admin-verify')) {
+        const eid = endpoint.split('/')[3];
+        const ev = fallbackDB.events.find(e => e.id === eid);
+        if (body.decision === 'verify') {
+          ev.status = 'Verified';
+          ev.reached_count = 320;
+          ev.history.push({ actor: user.name, action: 'Verified & Published', time: nowStr, comment: body.comment });
+          fallbackDB.tickets.filter(t => t.event_id === ev.id && (t.status === 'Open' || t.status === 'Reopened')).forEach(t => {
+            t.status = 'Resolved';
+            t.messages.push({ sender: user.name, role: 'admin', text: `Verified as genuine. ${body.comment || ''}`, time: nowStr });
+            addNotif(t.student_id, `Ticket ${t.id} Resolved`, `Admin verified '${ev.title}'.`, 'success');
+            addOutbox('WhatsApp', '+91-98XXX-XX104', `Ticket ${t.id} Resolved`, `'${ev.title}' is verified.`);
+          });
+          if (body.merge_duplicate_id) {
+            fallbackDB.events = fallbackDB.events.filter(e => e.id !== body.merge_duplicate_id);
+            addAudit('MERGE_DUPLICATE', 'event', body.merge_duplicate_id, ev.title, `Merged into ${ev.id}`);
+          }
+        } else if (body.decision === 'send_back') {
+          ev.status = 'Changes requested';
+          ev.history.push({ actor: user.name, action: 'Admin sent back', time: nowStr, comment: body.comment });
+        } else {
+          ev.status = 'Rejected';
+          ev.history.push({ actor: user.name, action: 'Rejected as unverified', time: nowStr, comment: body.comment });
+          fallbackDB.tickets.filter(t => t.event_id === ev.id && (t.status === 'Open' || t.status === 'Reopened')).forEach(t => {
+            t.status = 'Resolved';
+            t.messages.push({ sender: user.name, role: 'admin', text: `Warning: Rejected as unverified/fake. ${body.comment || ''}`, time: nowStr });
+            addNotif(t.student_id, `Ticket ${t.id} Resolved`, `'${ev.title}' was rejected by Admin.`, 'danger');
+          });
+        }
+        ev.reviewer_comment = body.comment || '';
+        addAudit(`ADMIN_${body.decision.toUpperCase()}`, 'event', ev.id, ev.title, body.comment);
+        return { status: ev.status };
+      }
+      if (endpoint.endsWith('/acknowledge')) {
+        const eid = endpoint.split('/')[3];
+        const ev = fallbackDB.events.find(e => e.id === eid);
+        if (!ev.acknowledged_by.includes(uid)) ev.acknowledged_by.push(uid);
+        return { ok: true };
+      }
+      if (endpoint === '/api/tickets') {
+        const ev = fallbackDB.events.find(e => e.id === body.event_id);
+        const tid = 'TKT-' + (101 + fallbackDB.tickets.length + 1);
+        fallbackDB.tickets.unshift({ id: tid, event_id: ev.id, event_title: ev.title, student_id: uid, student_name: user.name, assigned_admin_id: 'u_admin', assigned_admin_name: 'Siddharth Joshi', question: body.question, status: 'Open', messages: [{ sender: user.name, role: user.role, text: body.question, time: nowStr }], created_at: nowStr, updated_at: nowStr });
+        addNotif('u_admin', `New Ticket ${tid}`, `${user.name} requested verification for '${ev.title}'.`, 'info');
+        addOutbox('Email', 'siddharth.joshi@college.edu', `[UniSync] Ticket ${tid}`, body.question);
+        addAudit('CREATE_TICKET', 'ticket', tid, ev.title, body.question);
+        return { id: tid };
+      }
+      if (endpoint.endsWith('/feedback')) {
+        const tid = endpoint.split('/')[3];
+        const t = fallbackDB.tickets.find(x => x.id === tid);
+        if (body.action === 'close') {
+          t.status = 'Closed';
+          t.messages.push({ sender: user.name, role: user.role, text: 'Confirmed: Yes, resolved.', time: nowStr });
+        } else {
+          t.status = 'Reopened';
+          t.messages.push({ sender: user.name, role: user.role, text: body.note || 'Still a problem.', time: nowStr });
+        }
+        addAudit(`TICKET_${body.action.toUpperCase()}`, 'ticket', t.id, t.event_title, t.status);
+        return { status: t.status };
+      }
+      if (endpoint === '/api/deadlines') {
+        const ev = fallbackDB.events.find(e => e.id === body.event_id);
+        if (!fallbackDB.deadlines.some(d => d.user_id === uid && d.event_id === ev.id)) {
+          fallbackDB.deadlines.push({ id: 'dl_' + Date.now(), user_id: uid, event_id: ev.id, title: ev.title, deadline: ev.deadline, category: ev.category, completed: 0, saved: 1 });
+          ['3 days before', '1 day before', '2 hours before'].forEach(lbl => {
+            fallbackDB.reminders.push({ id: 'rem_' + Date.now() + Math.random(), user_id: uid, event_id: ev.id, event_title: ev.title, offset_label: lbl, scheduled_for: ev.deadline, channel: 'WhatsApp + Push', status: 'Scheduled', message_preview: `Reminder (${lbl}): ${ev.title} closes ${ev.deadline}.`, sent_at: null });
+          });
+        }
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/toggle')) {
+        const did = endpoint.split('/')[3];
+        const d = fallbackDB.deadlines.find(x => x.id === did);
+        if (d) d.completed = d.completed ? 0 : 1;
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/simulate')) {
+        const rid = endpoint.split('/')[3];
+        const r = fallbackDB.reminders.find(x => x.id === rid);
+        if (r) {
+          r.status = 'Sent';
+          r.sent_at = nowStr;
+          addOutbox('WhatsApp', '+91-98XXX-XX104', `Reminder: ${r.event_title}`, r.message_preview);
+          addNotif(r.user_id, `Reminder: ${r.event_title}`, r.message_preview, 'info');
+        }
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/join')) {
+        const cid = endpoint.split('/')[3];
+        const club = fallbackDB.clubs.find(c => c.id === cid);
+        const status = club.join_mode === 'instant' ? 'joined' : 'pending';
+        const existing = fallbackDB.communityMembers.find(m => m.community_id === cid && m.user_id === uid);
+        if (!existing) {
+          fallbackDB.communityMembers.push({ id: 'cm_' + Date.now(), community_id: cid, user_id: uid, user_name: user.name, status });
+          if (status === 'joined') club.member_count++;
+        }
+        addAudit('JOIN_COMMUNITY', 'club', cid, club.name, status);
+        return { status };
+      }
+      if (endpoint.endsWith('/approve')) {
+        const mid = endpoint.split('/')[3];
+        const cm = fallbackDB.communityMembers.find(m => m.id === mid);
+        if (cm) {
+          cm.status = 'joined';
+          const club = fallbackDB.clubs.find(c => c.id === cm.community_id);
+          if (club) club.member_count++;
+          addNotif(cm.user_id, 'Community request approved', 'WhatsApp invite link is now unlocked.', 'success');
+        }
+        return { ok: true };
+      }
+      if (endpoint === '/api/qa') {
+        fallbackDB.qaPosts.unshift({ id: 'qa_' + Date.now(), community_id: body.community_id, author_id: uid, author_name: user.name, author_role: user.role, title: body.title, body: body.body, upvotes: 1, created_at: nowStr });
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/answer')) {
+        const pid = endpoint.split('/')[3];
+        fallbackDB.qaAnswers.push({ id: 'ans_' + Date.now(), post_id: pid, author_id: uid, author_name: user.name, author_role: user.role, body: body.body, created_at: nowStr });
+        return { ok: true };
+      }
+      if (endpoint.endsWith('/upvote')) {
+        const pid = endpoint.split('/')[3];
+        const p = fallbackDB.qaPosts.find(x => x.id === pid);
+        if (p) p.upvotes++;
+        return { ok: true };
+      }
+      if (endpoint === '/api/admin/tags') {
+        if (body.action === 'add') fallbackDB.tags.push({ id: 't_' + Date.now(), name: body.name, color: body.color || 'teal', active: 1 });
+        if (body.action === 'toggle') { const t = fallbackDB.tags.find(x => x.id === body.tag_id); if (t) t.active = t.active ? 0 : 1; }
+        return { ok: true };
+      }
+      if (endpoint.startsWith('/api/admin/clubs/')) {
+        const cid = endpoint.split('/')[4];
+        const c = fallbackDB.clubs.find(x => x.id === cid);
+        if (c) Object.assign(c, { requires_admin_check: body.requires_admin_check ? 1 : 0, join_mode: body.join_mode, coordinator_id: body.coordinator_id, rep_id: body.rep_id });
+        return { ok: true };
+      }
+      if (endpoint.startsWith('/api/admin/routes/')) {
+        const cat = decodeURIComponent(endpoint.split('/')[4]);
+        const r = fallbackDB.routes.find(x => x.category === cat);
+        if (r) Object.assign(r, body);
+        return { ok: true };
+      }
+      if (endpoint.startsWith('/api/cabins/')) {
+        const cid = endpoint.split('/')[3];
+        const cab = fallbackDB.facultyCabins.find(c => c.id === cid);
+        if (cab) { cab.status = body.status; cab.note = body.note || ''; }
+        return { ok: true };
+      }
+      if (endpoint.startsWith('/api/venues/')) {
+        const vid = endpoint.split('/')[3];
+        const slot = fallbackDB.venueSlots.find(v => v.id === vid);
+        if (slot) {
+          slot.status = slot.status === 'Available' ? 'Booked' : 'Available';
+          slot.booked_by = slot.status === 'Booked' ? (body.booked_by || 'Reserved by Events Admin') : '';
+        }
+        return { ok: true };
+      }
+      if (endpoint === '/api/notifications/read') {
+        fallbackDB.notifications.filter(n => n.user_id === uid).forEach(n => n.read = 1);
+        return { ok: true };
+      }
+      return { ok: true };
+    }
+
+    async function refreshData() {
+      state.data = await api('GET', '/api/bootstrap');
+      render();
+    }
+
+    // =========================================================================
+    // 2. HELPERS (Badges, Relevance, Countdowns, Google Calendar Link)
+    // =========================================================================
+    function localSummarize(ev) {
+      if (ev.ai_summary) return ev.ai_summary;
+      const sentences = String(ev.description || '').split('.').map(s => s.trim()).filter(Boolean);
+      let lead = sentences[0] || ev.title || '';
+      if (lead.length > 110) lead = lead.slice(0, 107) + '...';
+      const parts = [
+        `Core: ${lead}.`,
+        `When & Where: ${ev.venue || 'Campus'} · Deadline ${ev.deadline || 'TBD'}.`,
+        `Eligibility: ${ev.department || 'All'} · ${ev.target_year || 'All'} (${ev.is_free ? 'Free' : 'Fee noted'}).`
+      ];
+      if (ev.red_flags && ev.red_flags.length) parts.push(`Caution: ${ev.red_flags[0]}.`);
+      return parts.join(' | ');
+    }
+
+    window.previewAiSummary = async (formId, outId) => {
+      const form = document.getElementById(formId);
+      const out = document.getElementById(outId);
+      if (!form || !out) return;
+      const fd = new FormData(form);
+      const res = await api('POST', '/api/summarize', {
+        title: fd.get('title') || '',
+        description: fd.get('description') || '',
+        deadline: (fd.get('deadline') || '').replace('T', ' '),
+        venue: fd.get('venue') || '',
+        department: fd.get('department') || 'All',
+        target_year: fd.get('target_year') || 'All',
+        is_free: fd.get('is_free') !== null
+      });
+      out.classList.remove('hidden');
+      out.innerHTML = `<p class="font-bold text-teal-800 mb-1">✨ AI Student Summary Preview</p><ul class="list-disc pl-4 space-y-0.5">${res.summary.split(' | ').map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`;
+    };
+
+    function getStatusPill(status) {
+      if (status === 'Verified') return `<span class="pill bg-emerald-50 text-emerald-700 border border-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Verified</span>`;
+      if (status === 'Pending review' || status === 'Pending faculty review' || status === 'Pending admin review') {
+        return `<span class="pill bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>${escapeHtml(status)}</span>`;
+      }
+      if (status === 'Changes requested') return `<span class="pill bg-teal-50 text-teal-700 border border-teal-200">Changes requested</span>`;
+      return `<span class="pill bg-rose-50 text-rose-700 border border-rose-200">${escapeHtml(status)}</span>`;
+    }
+
+    function getCountdownText(deadlineStr) {
+      const target = new Date(deadlineStr.replace(' ', 'T'));
+      const diffMs = target - DEMO_NOW;
+      if (isNaN(diffMs)) return deadlineStr;
+      if (diffMs <= 0) return 'Closed';
+      const hrs = Math.floor(diffMs / 3600000);
+      const days = Math.floor(hrs / 24);
+      if (days >= 1) return `${days}d ${hrs % 24}h left`;
+      return `${hrs}h left`;
+    }
+
+    function isClosingSoon(deadlineStr) {
+      const target = new Date(deadlineStr.replace(' ', 'T'));
+      const diffHrs = (target - DEMO_NOW) / 3600000;
+      return diffHrs > 0 && diffHrs <= 72;
+    }
+
+    function isEligible(ev, user) {
+      if (!user) return true;
+      const deptOk = ev.department === 'All' || ev.department === user.department;
+      const yearOk = ev.target_year === 'All' || ev.target_year === user.year;
+      return deptOk && yearOk;
+    }
+
+    function computeRelevance(ev, user) {
+      if (!user) return 0;
+      let score = 0;
+      if (ev.status === 'Verified') score += 20;
+      if (isEligible(ev, user)) score += 15;
+      const matchedTags = (ev.tags || []).filter(t => (user.interests || []).includes(t));
+      score += matchedTags.length * 12;
+      if (isClosingSoon(ev.deadline)) score += 5;
+      return score;
+    }
+
+    function googleCalendarUrl(ev) {
+      const start = ev.event_date.replace(/[-: ]/g, '').slice(0, 13) + '00Z';
+      const end = ev.deadline.replace(/[-: ]/g, '').slice(0, 13) + '00Z';
+      return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${start}/${end}&details=${encodeURIComponent(ev.description)}&location=${encodeURIComponent(ev.venue)}`;
+    }
+
+    function getNavItems(role) {
+      const base = [
+        { id: 'home', label: 'Home' },
+        { id: 'explore', label: 'Explore' },
+        { id: 'schedule', label: 'Schedule & Cabins' },
+        { id: 'communities', label: 'Communities' },
+        { id: 'inbox', label: 'Inbox' }
+      ];
+      if (role === 'club_rep') base.push({ id: 'club-management', label: 'Club Management' });
+      if (role === 'faculty') {
+        base.push({ id: 'faculty-publish', label: 'Publish' });
+        base.push({ id: 'club-approvals', label: 'Club Approvals' });
+      }
+      if (role === 'admin') {
+        base.push({ id: 'admin-queue', label: 'Verification Queue' });
+        base.push({ id: 'admin-manage', label: 'Manage' });
+        base.push({ id: 'admin-automation', label: 'Automation & Logs' });
+      }
+      return base;
+    }
+
+    // =========================================================================
+    // 3. NAVIGATION & MUTATION HANDLERS
+    // =========================================================================
+    window.nav = (view, extra = {}) => {
+      state.view = view;
+      Object.assign(state, extra);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      render();
+    };
+
+    window.quickLogin = async (uid) => {
+      state.userId = uid;
+      try { localStorage.setItem('unisync_uid', uid); } catch (e) {}
+      await refreshData();
+      state.view = 'home';
+      showToast(`Signed in as ${state.data.currentUser.name}`, 'emerald');
+      render();
+    };
+
+    window.logout = () => {
+      state.userId = null;
+      try { localStorage.removeItem('unisync_uid'); } catch (e) {}
+      state.view = 'landing';
+      render();
+    };
+
+    window.handleSignup = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const res = await api('POST', '/api/signup', {
+        name: fd.get('name'),
+        email: fd.get('email'),
+        role: fd.get('role'),
+        department: fd.get('department'),
+        year: fd.get('year')
+      });
+      state.userId = res.user.id;
+      try { localStorage.setItem('unisync_uid', res.user.id); } catch (err) {}
+      await refreshData();
+      state.view = 'onboarding';
+      render();
+    };
+
+    window.saveOnboarding = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const interests = fd.getAll('interests');
+      await api('POST', '/api/profile', {
+        department: fd.get('department'),
+        year: fd.get('year'),
+        interests,
+        whatsapp_opt_in: fd.get('whatsapp_opt_in') === 'on',
+        quiet_hours: fd.get('quiet_hours')
+      });
+      await refreshData();
+      state.view = 'home';
+      showToast('Preferences saved! Your For You feed is updated.', 'emerald');
+      render();
+    };
+
+    window.requestVerification = async (eventId) => {
+      const qEl = document.getElementById('verify-question-input');
+      const question = qEl ? qEl.value.trim() : '';
+      const res = await api('POST', '/api/tickets', {
+        event_id: eventId,
+        question: question || 'Please verify if this notice is official and safe.'
+      });
+      await refreshData();
+      showToast(`Ticket ${res.id || 'created'} sent to Admin Verification Queue`, 'teal');
+      render();
+    };
+
+    window.addToDeadlines = async (eventId) => {
+      await api('POST', '/api/deadlines', { event_id: eventId });
+      await refreshData();
+      showToast('Added to My Deadlines with 3d, 1d & 2h reminders scheduled!', 'emerald');
+      render();
+    };
+
+    window.toggleDeadline = async (dlId) => {
+      await api('POST', `/api/deadlines/${dlId}/toggle`);
+      await refreshData();
+    };
+
+    window.simulateReminder = async (remId) => {
+      await api('POST', `/api/reminders/${remId}/simulate`);
+      await refreshData();
+      showToast('Reminder simulated! Check Notifications & Admin Outbox.', 'emerald');
+    };
+
+    window.acknowledgeEvent = async (eventId) => {
+      await api('POST', `/api/events/${eventId}/acknowledge`);
+      await refreshData();
+      showToast('Notice acknowledged', 'emerald');
+    };
+
+    window.ticketFeedback = async (ticketId, action) => {
+      const noteEl = document.getElementById(`reopen-note-${ticketId}`);
+      await api('POST', `/api/tickets/${ticketId}/feedback`, {
+        action,
+        note: noteEl ? noteEl.value.trim() : ''
+      });
+      await refreshData();
+      showToast(action === 'close' ? 'Ticket closed! Loop completed.' : 'Ticket reopened for Admin review.', action === 'close' ? 'emerald' : 'amber');
+    };
+
+    window.joinCommunity = async (cid) => {
+      const res = await api('POST', `/api/communities/${cid}/join`);
+      await refreshData();
+      showToast(res.status === 'joined' ? 'Joined community! WhatsApp invite unlocked.' : 'Join request sent to moderator.', 'emerald');
+    };
+
+    window.approveMember = async (mid) => {
+      await api('POST', `/api/community-members/${mid}/approve`);
+      await refreshData();
+      showToast('Member approved!', 'emerald');
+    };
+
+    window.submitQaPost = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', '/api/qa', {
+        community_id: state.selectedCommunityId,
+        title: fd.get('title'),
+        body: fd.get('body')
+      });
+      e.target.reset();
+      await refreshData();
+      showToast('Question posted to Q&A board!', 'teal');
+    };
+
+    window.submitQaAnswer = async (e, postId) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', `/api/qa/${postId}/answer`, { body: fd.get('body') });
+      await refreshData();
+      showToast('Answer posted!', 'emerald');
+    };
+
+    window.upvoteQa = async (postId) => {
+      await api('POST', `/api/qa/${postId}/upvote`);
+      await refreshData();
+    };
+
+    window.createEventForm = async (e, isClub) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      let attachmentUrl = '';
+      const fileInput = e.target.querySelector('input[type="file"]');
+      if (fileInput && fileInput.files && fileInput.files[0]) {
+        const f = fileInput.files[0];
+        const up = await api('POST', '/api/upload', { filename: f.name, text: `Uploaded file: ${f.name} (${f.size} bytes)` });
+        attachmentUrl = up.url;
+      }
+      await api('POST', '/api/events', {
+        title: fd.get('title'),
+        description: fd.get('description'),
+        category: fd.get('category'),
+        department: fd.get('department'),
+        target_year: fd.get('target_year'),
+        event_date: fd.get('event_date').replace('T', ' '),
+        deadline: fd.get('deadline').replace('T', ' '),
+        venue: fd.get('venue'),
+        venue_id: fd.get('venue_id') || 'v_auditorium',
+        registration_link: fd.get('registration_link'),
+        source_doc: fd.get('source_doc') || 'Official Submission',
+        attachment_url: attachmentUrl,
+        tags: fd.getAll('tags'),
+        is_free: fd.get('is_free') === 'on',
+        club_id: isClub ? fd.get('club_id') : null
+      });
+      e.target.reset();
+      await refreshData();
+      showToast(isClub ? 'Event submitted to Faculty Coordinator!' : 'Announcement submitted!', 'emerald');
+    };
+
+    window.resubmitClubEvent = async (e, eid) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', `/api/events/${eid}/resubmit`, {
+        title: fd.get('title'),
+        description: fd.get('description'),
+        venue: fd.get('venue')
+      });
+      await refreshData();
+      showToast('Event updated and resubmitted for review!', 'emerald');
+    };
+
+    window.facultyReview = async (eid, decision) => {
+      const commentEl = document.getElementById(`fac-comment-${eid}`);
+      await api('POST', `/api/events/${eid}/faculty-review`, {
+        decision,
+        comment: commentEl ? commentEl.value.trim() : ''
+      });
+      await refreshData();
+      showToast(`Club event ${decision === 'approve' ? 'approved' : decision}`, 'emerald');
+    };
+
+    window.adminVerify = async (eid, decision, mergeDupId = null) => {
+      const commentEl = document.getElementById(`adm-comment-${eid}`);
+      await api('POST', `/api/events/${eid}/admin-verify`, {
+        decision,
+        comment: commentEl ? commentEl.value.trim() : '',
+        merge_duplicate_id: mergeDupId
+      });
+      await refreshData();
+      showToast(mergeDupId ? 'Verified & duplicate merged! Linked tickets resolved.' : `Event marked ${decision}`, 'emerald');
+    };
+
+    window.adminAddTag = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', '/api/admin/tags', { action: 'add', name: fd.get('name'), color: fd.get('color') });
+      e.target.reset();
+      await refreshData();
+      showToast('Tag added to canonical list', 'emerald');
+    };
+
+    window.adminToggleTag = async (tagId) => {
+      await api('POST', '/api/admin/tags', { action: 'toggle', tag_id: tagId });
+      await refreshData();
+    };
+
+    window.adminSaveClub = async (e, cid) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', `/api/admin/clubs/${cid}`, {
+        requires_admin_check: fd.get('requires_admin_check') === 'on',
+        join_mode: fd.get('join_mode'),
+        coordinator_id: fd.get('coordinator_id'),
+        rep_id: fd.get('rep_id')
+      });
+      await refreshData();
+      showToast('Club routing & settings updated', 'emerald');
+    };
+
+    window.updateCabin = async (e, cid) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api('POST', `/api/cabins/${cid}`, { status: fd.get('status'), note: fd.get('note') });
+      await refreshData();
+      showToast('Cabin availability updated for students!', 'emerald');
+    };
+
+    window.toggleVenue = async (vid) => {
+      await api('POST', `/api/venues/${vid}/toggle`, { booked_by: 'Reserved by Events Admin' });
+      await refreshData();
+      showToast('Venue availability updated', 'emerald');
+    };
+
+    window.markAllRead = async () => {
+      await api('POST', '/api/notifications/read');
+      await refreshData();
+    };
+
+    // =========================================================================
+    // 4. UI RENDERING (Thetawave Focus Aesthetic)
+    // =========================================================================
+    function renderHeader() {
+      const user = state.data?.currentUser;
+      const loggedIn = Boolean(state.userId && user);
+      const unread = (state.data?.notifications || []).filter(n => !n.read).length;
+
+      if (!loggedIn) {
+        return `
+          <header class="sticky top-0 z-40 backdrop-blur-md bg-white/80 border-b border-slate-200/70">
+            <div class="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+              <button onclick="nav('landing')" class="flex items-center gap-2.5 text-left">
+                <div class="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center font-extrabold text-sm shadow-sm">U</div>
+                <span class="font-bold text-lg tracking-tight text-slate-900">UniSync</span>
+              </button>
+              <div class="flex items-center gap-3">
+                <span class="hidden sm:inline-flex pill bg-teal-50 text-teal-700 border border-teal-100">
+                  <span class="w-2 h-2 rounded-full bg-emerald-500 live-dot"></span>${state.backendMode}
+                </span>
+                <button onclick="nav('login')" class="btn-primary px-4 py-2 text-sm">Sign in</button>
+              </div>
+            </div>
+          </header>
+        `;
+      }
+
+      const navItems = getNavItems(user.role);
+      const roleLabels = { student: 'Student', club_rep: 'Club Rep', faculty: 'Faculty', admin: 'Admin' };
+
+      return `
+        <header class="sticky top-0 z-40 backdrop-blur-md bg-white/85 border-b border-slate-200/70">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-4 min-w-0">
+              <button onclick="nav('home')" class="flex items-center gap-2 shrink-0">
+                <div class="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-extrabold text-sm">U</div>
+                <span class="font-bold text-base tracking-tight text-slate-900">UniSync</span>
+              </button>
+              <nav class="hidden lg:flex items-center gap-1 overflow-x-auto">
+                ${navItems.map(item => `
+                  <button onclick="nav('${item.id}')" class="nav-pill ${state.view === item.id ? 'active' : ''}">${item.label}</button>
+                `).join('')}
+              </nav>
+            </div>
+            <div class="flex items-center gap-2.5 shrink-0">
+              <button onclick="nav('notifications')" class="relative p-2 rounded-xl hover:bg-slate-100 text-slate-600" title="Notifications">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                ${unread > 0 ? `<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"></span>` : ''}
+              </button>
+              <button onclick="nav('settings')" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-teal-50 text-xs font-semibold text-slate-700">
+                <span>${escapeHtml(user.name)}</span>
+                <span class="px-2 py-0.5 rounded-full bg-teal-600 text-white text-[10px]">${roleLabels[user.role]}</span>
+              </button>
+              <button onclick="logout()" class="btn-secondary px-3 py-1.5 text-xs">Log out</button>
+            </div>
+          </div>
+          <div class="lg:hidden px-4 pb-2 flex items-center gap-1 overflow-x-auto">
+            ${navItems.map(item => `
+              <button onclick="nav('${item.id}')" class="nav-pill text-xs ${state.view === item.id ? 'active' : ''}">${item.label}</button>
+            `).join('')}
+          </div>
+        </header>
+      `;
+    }
+
+    function renderLanding() {
+      const verifiedCount = (state.data?.events || []).filter(e => e.status === 'Verified').length;
+      return `
+        <main class="max-w-6xl mx-auto px-5 py-12 sm:py-16 space-y-16">
+          <!-- Hero Split Frame (Thetawave Focus style) -->
+          <section class="grid lg:grid-cols-12 gap-8 items-center">
+            <div class="lg:col-span-6 space-y-6">
+              <div class="pill bg-white border border-teal-100 text-teal-700 shadow-sm">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 live-dot"></span>
+                <span>${verifiedCount} verified campus notices live</span>
+              </div>
+              <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
+                One verified <span class="tw-underline">campus hub</span> for notices, clubs & deadlines.
+              </h1>
+              <p class="text-base sm:text-lg text-slate-600 leading-relaxed">
+                Stop guessing which WhatsApp forwards are real. UniSync verifies placement drives, routes club approvals, tracks deadlines, and closes the loop on student doubts.
+              </p>
+              <div class="flex flex-wrap gap-3 pt-1">
+                <button onclick="nav('login')" class="btn-primary px-6 py-3 text-sm shadow-md shadow-teal-500/20">Open UniSync</button>
+                <button onclick="quickLogin('u_student')" class="btn-secondary px-5 py-3 text-sm">Enter as Student (Kabir)</button>
+              </div>
+            </div>
+
+            <!-- Windowed Preview Card -->
+            <div class="lg:col-span-6 tw-card p-5 space-y-4">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                  <span class="ml-2 text-xs font-semibold text-slate-500">Live Verification Feed</span>
+                </div>
+                <span class="pill bg-emerald-50 text-emerald-700 text-[11px]">● Closed-loop active</span>
+              </div>
+              <div class="space-y-3">
+                <div class="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-100 flex items-start justify-between gap-3">
+                  <div>
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="pill bg-emerald-100 text-emerald-800 text-[11px]">Verified</span>
+                      <span class="pill bg-white text-teal-700 text-[11px]">Eligible for you</span>
+                    </div>
+                    <p class="font-semibold text-sm text-slate-900">UniHack 2026: Campus AI & Systems Sprint</p>
+                    <p class="text-xs text-slate-500 mt-0.5">Main Auditorium · Coding Club · Free</p>
+                  </div>
+                  <span class="text-xs font-bold text-teal-600 shrink-0">2d left</span>
+                </div>
+                <div class="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 flex items-start justify-between gap-3">
+                  <div>
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="pill bg-amber-100 text-amber-800 text-[11px]">Pending review</span>
+                      <span class="pill bg-rose-100 text-rose-700 text-[11px]">Fee flagged</span>
+                    </div>
+                    <p class="font-semibold text-sm text-slate-900">Mega Hiring Drive: Zenith Corp</p>
+                    <p class="text-xs text-slate-500 mt-0.5">Ticket TKT-101 open with Placement Admin</p>
+                  </div>
+                  <span class="text-xs font-semibold text-rose-600 shrink-0">Caution</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4-Step Numbered Cards (Thetawave Focus style: 01, 02, 03, 04) -->
+          <section class="space-y-5">
+            <div class="text-center max-w-xl mx-auto">
+              <h2 class="text-2xl font-bold text-slate-900">How verification & approvals work</h2>
+              <p class="text-sm text-slate-500 mt-1">Four clear stages replace scattered forwards and unanswered messages.</p>
+            </div>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              ${[
+                ['01', 'Submit & Target', 'Club reps and faculty submit events with source docs, tags, and department targeting.'],
+                ['02', 'Faculty & Admin Check', 'Assigned faculty coordinators review club events; admins verify official notices and merge duplicates.'],
+                ['03', 'Personalized Feed', 'Students see Verified badges, interest-matched For You cards, and smart deadline countdowns.'],
+                ['04', 'Close the Loop', 'Flag suspicious forwards as tickets, get admin resolution, and confirm or reopen in Inbox.']
+              ].map(([num, title, desc]) => `
+                <div class="tw-card p-5 space-y-2.5">
+                  <span class="text-xs font-extrabold text-teal-600 bg-teal-50 px-2.5 py-1 rounded-lg inline-block">${num}</span>
+                  <h3 class="font-bold text-slate-900 text-base">${title}</h3>
+                  <p class="text-xs text-slate-600 leading-relaxed">${desc}</p>
+                </div>
+              `).join('')}
+            </div>
+          </section>
+        </main>
+      `;
+    }
+
+    function renderLogin() {
+      const roles = [
+        { id: 'u_student', name: 'Kabir Sharma', role: 'Student', meta: 'CSE · 3rd Year · For You feed, Deadlines, Inbox, Q&A' },
+        { id: 'u_rep', name: 'Devansh Nair', role: 'Club Representative', meta: 'Coding Club · Submit & resubmit events, approve joins' },
+        { id: 'u_faculty', name: 'Prof. Ananya Rao', role: 'Faculty Coordinator', meta: 'CSE · Club Approvals, Publish notices, Reach stats' },
+        { id: 'u_admin', name: 'Siddharth Joshi', role: 'Placements & Hackathons Admin', meta: 'Verifies placement drives, internships & hackathons' },
+        { id: 'u_admin_exam', name: 'Meera Iyer', role: 'Exams & Timetable Admin', meta: 'Manages exam notices, timetables & academic circulars' },
+        { id: 'u_admin_venue', name: 'Karan Malhotra', role: 'Events & Auditorium Admin', meta: 'Checks auditorium/hall availability & club events' }
+      ];
+      return `
+        <main class="max-w-4xl mx-auto px-5 py-10 grid md:grid-cols-2 gap-6">
+          <div class="tw-card p-6 space-y-4">
+            <h2 class="text-xl font-bold text-slate-900">Quick sign in</h2>
+            <p class="text-xs text-slate-500">Choose a campus role to explore its live dashboard and server-checked permissions.</p>
+            <div class="space-y-2.5">
+              ${roles.map(r => `
+                <button onclick="quickLogin('${r.id}')" class="w-full text-left p-3.5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50/40 transition flex items-center justify-between gap-3">
+                  <div>
+                    <div class="font-semibold text-sm text-slate-900">${r.name} <span class="ml-1.5 pill bg-teal-50 text-teal-700 text-[11px]">${r.role}</span></div>
+                    <p class="text-xs text-slate-500 mt-1">${r.meta}</p>
+                  </div>
+                  <span class="text-teal-600 font-bold text-sm">→</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="tw-card p-6 space-y-4">
+            <h2 class="text-xl font-bold text-slate-900">Create campus account</h2>
+            <form onsubmit="handleSignup(event)" class="space-y-3">
+              <div>
+                <label class="text-xs font-semibold text-slate-700">Full Name</label>
+                <input name="name" required placeholder="Priya Sharma" class="mt-1 w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              </div>
+              <div>
+                <label class="text-xs font-semibold text-slate-700">College Email</label>
+                <input name="email" type="email" required placeholder="priya@college.edu" class="mt-1 w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs font-semibold text-slate-700">Department</label>
+                  <select name="department" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    <option>CSE</option><option>IT</option><option>ECE</option><option>Mechanical</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs font-semibold text-slate-700">Year</label>
+                  <select name="year" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    <option>1st Year</option><option>2nd Year</option><option selected>3rd Year</option><option>4th Year</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs font-semibold text-slate-700">Role</label>
+                <select name="role" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                  <option value="student">Student</option>
+                  <option value="club_rep">Club Representative</option>
+                  <option value="faculty">Faculty Coordinator</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button type="submit" class="w-full btn-primary py-2.5 text-sm">Continue to Onboarding</button>
+            </form>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderOnboarding() {
+      const user = state.data.currentUser;
+      const activeTags = state.data.tags.filter(t => t.active);
+      return `
+        <main class="max-w-2xl mx-auto px-5 py-10">
+          <div class="tw-card p-6 sm:p-8 space-y-6">
+            <div>
+              <span class="pill bg-teal-50 text-teal-700 mb-2">Step 1 of 1 · Personalize UniSync</span>
+              <h1 class="text-2xl font-bold text-slate-900">Pick your interests & alert preferences</h1>
+            </div>
+            <form onsubmit="saveOnboarding(event)" class="space-y-5">
+              <div class="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="text-xs font-semibold text-slate-700">Department</label>
+                  <select name="department" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    ${['CSE', 'IT', 'ECE', 'Mechanical'].map(d => `<option ${user.department === d ? 'selected' : ''}>${d}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs font-semibold text-slate-700">Year</label>
+                  <select name="year" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    ${['1st Year', '2nd Year', '3rd Year', '4th Year', 'Faculty', 'Staff'].map(y => `<option ${user.year === y ? 'selected' : ''}>${y}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs font-semibold text-slate-700 block mb-2">Interest Tags (powers your "For You" feed)</label>
+                <div class="flex flex-wrap gap-2">
+                  ${activeTags.map(t => `
+                    <label class="cursor-pointer">
+                      <input type="checkbox" name="interests" value="${escapeHtml(t.name)}" ${(user.interests || []).includes(t.name) ? 'checked' : ''} class="peer sr-only" />
+                      <span class="pill border border-slate-200 bg-white text-slate-700 peer-checked:bg-teal-600 peer-checked:text-white peer-checked:border-teal-600 transition">${escapeHtml(t.name)}</span>
+                    </label>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="grid sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                <label class="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" name="whatsapp_opt_in" ${user.whatsapp_opt_in ? 'checked' : ''} class="w-4 h-4 accent-teal-600" />
+                  <span>Enable WhatsApp urgent alerts</span>
+                </label>
+                <div>
+                  <label class="text-xs font-semibold text-slate-700">Quiet Hours</label>
+                  <input name="quiet_hours" value="${escapeHtml(user.quiet_hours)}" class="mt-1 w-full px-3 py-1.5 rounded-xl border border-slate-200 text-sm" />
+                </div>
+              </div>
+              <button type="submit" class="btn-primary px-6 py-2.5 text-sm">Save & Go to Dashboard</button>
+            </form>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderEventCard(ev, user) {
+      const eligible = isEligible(ev, user);
+      const closing = isClosingSoon(ev.deadline);
+      return `
+        <div class="tw-card p-5 flex flex-col justify-between gap-4 hover:border-teal-300 transition cursor-pointer" onclick="nav('event-detail', { selectedEventId: '${ev.id}' })">
+          <div class="space-y-2.5">
+            <div class="flex flex-wrap items-center gap-1.5">
+              ${getStatusPill(ev.status)}
+              ${closing ? `<span class="pill bg-rose-50 text-rose-700 border border-rose-200">Closing soon</span>` : (eligible ? `<span class="pill bg-teal-50 text-teal-700 border border-teal-100">For you</span>` : '')}
+            </div>
+            <h3 class="font-bold text-slate-900 text-base leading-snug">${escapeHtml(ev.title)}</h3>
+            <p class="text-xs text-slate-600 line-clamp-2"><span class="font-semibold text-teal-700">✨ Summary:</span> ${escapeHtml(localSummarize(ev).split(" | ")[0].replace("Core: ", ""))}</p>
+            ${(ev.red_flags && ev.red_flags.length) ? `
+              <div class="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-medium">
+                ⚠ ${escapeHtml(ev.red_flags[0])}
+              </div>
+            ` : ''}
+            <div class="flex flex-wrap gap-1.5 pt-1">
+              ${(ev.tags || []).slice(0, 2).map(t => `<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px]">#${escapeHtml(t)}</span>`).join('')}
+            </div>
+          </div>
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>${escapeHtml(ev.venue)} · ${escapeHtml(ev.department)}</span>
+            <span class="font-semibold text-teal-600">${getCountdownText(ev.deadline)}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderHome() {
+      const d = state.data;
+      const user = d.currentUser;
+      const verifiedEvents = d.events.filter(e => e.status === 'Verified');
+      const forYou = [...verifiedEvents].sort((a, b) => computeRelevance(b, user) - computeRelevance(a, user)).slice(0, 3);
+      const pendingTickets = d.tickets.filter(t => t.student_id === user.id && t.status !== 'Closed');
+      const flaggedEvents = d.events.filter(e => e.red_flags && e.red_flags.length > 0 && e.status !== 'Rejected');
+
+      if (user.role === 'club_rep') {
+        const myClub = d.clubs.find(c => c.rep_id === user.id) || d.clubs[0];
+        const coord = d.users.find(u => u.id === myClub.coordinator_id);
+        const myEvents = d.events.filter(e => e.author_id === user.id || e.club_id === myClub.id);
+        return `
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+            <div class="tw-card p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <span class="pill bg-teal-50 text-teal-700 mb-2">${escapeHtml(myClub.name)} · Faculty coordinator: ${escapeHtml(coord?.name || 'Prof. Ananya Rao')}</span>
+                <h1 class="text-2xl font-bold text-slate-900">Welcome back, ${escapeHtml(user.name)}</h1>
+              </div>
+              <button onclick="nav('club-management')" class="btn-primary px-5 py-2.5 text-sm">+ Submit Club Event</button>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4">
+              ${myEvents.map(ev => renderEventCard(ev, user)).join('')}
+            </div>
+          </main>
+        `;
+      }
+
+      if (user.role === 'faculty') {
+        const assignedClubs = d.clubs.filter(c => c.coordinator_id === user.id);
+        const pendingClubEvents = d.events.filter(e => e.status === 'Pending faculty review' && assignedClubs.some(c => c.id === e.club_id));
+        return `
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+            <div class="tw-card p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <span class="pill bg-teal-50 text-teal-700 mb-2">Faculty Coordinator · ${assignedClubs.map(c => c.name).join(', ')}</span>
+                <h1 class="text-2xl font-bold text-slate-900">Welcome, ${escapeHtml(user.name)}</h1>
+              </div>
+              <div class="flex gap-2.5">
+                <button onclick="nav('club-approvals')" class="btn-primary px-4 py-2.5 text-sm">Club Approvals (${pendingClubEvents.length})</button>
+                <button onclick="nav('faculty-publish')" class="btn-secondary px-4 py-2.5 text-sm">Publish Notice</button>
+              </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4">
+              ${d.events.filter(e => e.author_id === user.id || e.status === 'Pending faculty review').map(ev => renderEventCard(ev, user)).join('')}
+            </div>
+          </main>
+        `;
+      }
+
+      if (user.role === 'admin') {
+        const queueCount = d.events.filter(e => e.status === 'Pending review' || e.status === 'Pending admin review').length;
+        const openTickets = d.tickets.filter(t => t.status === 'Open' || t.status === 'Reopened').length;
+        return `
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+            <div class="tw-card p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <span class="pill bg-teal-50 text-teal-700 mb-2">Campus Admin Control</span>
+                <h1 class="text-2xl font-bold text-slate-900">Verification & Governance</h1>
+              </div>
+              <div class="flex flex-wrap gap-2.5">
+                <button onclick="nav('admin-queue')" class="btn-primary px-4 py-2.5 text-sm">Verification Queue (${queueCount})</button>
+                <button onclick="nav('admin-automation')" class="btn-secondary px-4 py-2.5 text-sm">Reminders, Outbox & Audit</button>
+              </div>
+            </div>
+            <div class="grid md:grid-cols-3 gap-4">
+              <div class="tw-card p-5"><p class="text-xs font-semibold text-slate-500">Pending Verification</p><p class="text-3xl font-extrabold text-teal-600 mt-1">${queueCount}</p></div>
+              <div class="tw-card p-5"><p class="text-xs font-semibold text-slate-500">Open / Reopened Tickets</p><p class="text-3xl font-extrabold text-amber-600 mt-1">${openTickets}</p></div>
+              <div class="tw-card p-5"><p class="text-xs font-semibold text-slate-500">Audit Log Entries</p><p class="text-3xl font-extrabold text-emerald-600 mt-1">${d.auditLog.length}</p></div>
+            </div>
+          </main>
+        `;
+      }
+
+      // Student Home (Split Bento Layout)
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-8 space-y-6">
+            <div class="tw-card p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div class="flex flex-wrap items-center gap-2 mb-2">
+                  <span class="pill bg-teal-50 text-teal-700">${escapeHtml(user.department)} · ${escapeHtml(user.year)}</span>
+                  ${(user.interests || []).slice(0, 3).map(t => `<span class="pill bg-slate-100 text-slate-600">#${escapeHtml(t)}</span>`).join('')}
+                </div>
+                <h1 class="text-2xl font-bold text-slate-900">For You, ${escapeHtml(user.name)}</h1>
+              </div>
+              <button onclick="nav('explore')" class="btn-primary px-4 py-2 text-sm">Browse All</button>
+            </div>
+
+            ${flaggedEvents.length ? `
+              <div class="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-bold text-amber-800 uppercase tracking-wide">Priority Caution</p>
+                  <p class="text-sm font-semibold text-slate-900">${escapeHtml(flaggedEvents[0].title)} — ${escapeHtml(flaggedEvents[0].red_flags[0])}</p>
+                </div>
+                <button onclick="nav('event-detail', { selectedEventId: '${flaggedEvents[0].id}' })" class="btn-secondary px-3.5 py-1.5 text-xs">Inspect Notice</button>
+              </div>
+            ` : ''}
+
+            <div class="grid sm:grid-cols-2 gap-4">
+              ${forYou.map(ev => renderEventCard(ev, user)).join('')}
+            </div>
+          </div>
+
+          <!-- Right Sidebar: Deadlines & Tickets -->
+          <div class="lg:col-span-4 space-y-5">
+            <div class="tw-card p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="font-bold text-slate-900 text-base">My Deadlines</h2>
+                <button onclick="nav('deadlines')" class="text-xs font-semibold text-teal-600">View all →</button>
+              </div>
+              ${d.deadlines.length ? d.deadlines.slice(0, 3).map(dl => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="text-xs font-semibold text-slate-900 truncate ${dl.completed ? 'line-through text-slate-400' : ''}">${escapeHtml(dl.title)}</p>
+                    <p class="text-[11px] text-teal-600 font-medium">${getCountdownText(dl.deadline)}</p>
+                  </div>
+                  <button onclick="toggleDeadline('${dl.id}')" class="text-xs px-2.5 py-1 rounded-lg border ${dl.completed ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-600'}">${dl.completed ? 'Done' : 'Mark'}</button>
+                </div>
+              `).join('') : `<p class="text-xs text-slate-500">No saved deadlines yet.</p>`}
+            </div>
+
+            <div class="tw-card p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="font-bold text-slate-900 text-base">Verification Tickets</h2>
+                <button onclick="nav('inbox')" class="text-xs font-semibold text-teal-600">Inbox →</button>
+              </div>
+              ${pendingTickets.length ? pendingTickets.map(t => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1 cursor-pointer" onclick="nav('inbox')">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-teal-600">${escapeHtml(t.id)}</span>
+                    <span class="pill bg-white border border-slate-200 text-[11px]">${escapeHtml(t.status)}</span>
+                  </div>
+                  <p class="text-xs font-semibold text-slate-900">${escapeHtml(t.event_title)}</p>
+                </div>
+              `).join('') : `<p class="text-xs text-slate-500">No active verification tickets.</p>`}
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderExplore() {
+      const d = state.data;
+      const user = d.currentUser;
+      const f = state.exploreFilters;
+      const activeTags = d.tags.filter(t => t.active);
+
+      let list = d.events.filter(e => e.status === 'Verified' || e.status === 'Pending review');
+      if (f.category !== 'All') list = list.filter(e => e.category === f.category);
+      if (f.department !== 'All') list = list.filter(e => e.department === 'All' || e.department === f.department);
+      if (f.year !== 'All') list = list.filter(e => e.target_year === 'All' || e.target_year === f.year);
+      if (f.tag !== 'All') list = list.filter(e => (e.tags || []).includes(f.tag));
+      if (f.search.trim()) {
+        const q = f.search.toLowerCase();
+        list = list.filter(e => e.title.toLowerCase().includes(q) || e.description.toLowerCase().includes(q));
+      }
+      if (f.sort === 'relevant') {
+        list.sort((a, b) => computeRelevance(b, user) - computeRelevance(a, user));
+      } else {
+        list.sort((a, b) => a.deadline.localeCompare(b.deadline));
+      }
+
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+          <div class="tw-card p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h1 class="text-2xl font-bold text-slate-900">Explore Campus Feed</h1>
+              <input value="${escapeHtml(f.search)}" oninput="state.exploreFilters.search=this.value;render()" placeholder="Search notices, companies, clubs..." class="w-full sm:w-72 px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <select onchange="state.exploreFilters.category=this.value;render()" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                ${['All', 'Placements', 'Hackathons', 'Workshops', 'Clubs', 'Academics'].map(c => `<option ${f.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+              <select onchange="state.exploreFilters.department=this.value;render()" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                ${['All', 'CSE', 'IT', 'ECE'].map(dep => `<option ${f.department === dep ? 'selected' : ''}>${dep}</option>`).join('')}
+              </select>
+              <select onchange="state.exploreFilters.year=this.value;render()" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                ${['All', '1st Year', '2nd Year', '3rd Year', '4th Year'].map(y => `<option ${f.year === y ? 'selected' : ''}>${y}</option>`).join('')}
+              </select>
+              <select onchange="state.exploreFilters.sort=this.value;render()" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                <option value="relevant" ${f.sort === 'relevant' ? 'selected' : ''}>Most Relevant</option>
+                <option value="deadline" ${f.sort === 'deadline' ? 'selected' : ''}>Closing Soonest</option>
+              </select>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="state.exploreFilters.tag='All';render()" class="pill ${f.tag === 'All' ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700'}">All Tags</button>
+              ${activeTags.map(t => `
+                <button onclick="state.exploreFilters.tag='${escapeHtml(t.name)}';render()" class="pill ${f.tag === t.name ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-teal-50'}">#${escapeHtml(t.name)}</button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${list.length ? list.map(ev => renderEventCard(ev, user)).join('') : `<div class="tw-card p-8 col-span-full text-center text-sm text-slate-500">No events match your current filters.</div>`}
+          </div>
+        </main>
+      `;
+    }
+
+    function renderEventDetail() {
+      const d = state.data;
+      const user = d.currentUser;
+      const ev = d.events.find(e => e.id === state.selectedEventId) || d.events[0];
+      const alreadyDeadline = d.deadlines.some(dl => dl.event_id === ev.id);
+      const acked = (ev.acknowledged_by || []).includes(user.id);
+
+      return `
+        <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+          <button onclick="nav('explore')" class="text-xs font-semibold text-teal-600 hover:underline">← Back to Explore</button>
+          <div class="grid lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-8 tw-card p-6 space-y-5">
+              <div class="flex flex-wrap items-center gap-2">
+                ${getStatusPill(ev.status)}
+                <span class="pill bg-slate-100 text-slate-700">${escapeHtml(ev.category)}</span>
+                ${isEligible(ev, user) ? `<span class="pill bg-teal-50 text-teal-700">Eligible for you</span>` : ''}
+                ${isClosingSoon(ev.deadline) ? `<span class="pill bg-rose-50 text-rose-700">Closing soon</span>` : ''}
+              </div>
+              <h1 class="text-2xl font-bold text-slate-900">${escapeHtml(ev.title)}</h1>
+              <div class="p-4 rounded-2xl bg-teal-50/80 border border-teal-200 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-teal-800">✨ AI Notice Summary (Shortened for Students)</span>
+                  <span class="pill bg-white text-teal-700 text-[10px]">TL;DR</span>
+                </div>
+                <ul class="list-disc pl-4 text-xs text-slate-700 space-y-1">
+                  ${localSummarize(ev).split(' | ').map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+                </ul>
+              </div>
+              <details class="text-sm text-slate-700 leading-relaxed" open>
+                <summary class="text-xs font-semibold text-slate-500 cursor-pointer mb-1">Full Original Notice</summary>
+                <p>${escapeHtml(ev.description)}</p>
+              </details>
+
+              ${(ev.red_flags && ev.red_flags.length) ? `
+                <div class="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-1.5">
+                  <p class="text-xs font-bold text-rose-800 uppercase">Verification Red Flags</p>
+                  <ul class="list-disc pl-5 text-xs text-rose-700 space-y-1">
+                    ${ev.red_flags.map(rf => `<li>${escapeHtml(rf)}</li>`).join('')}
+                  </ul>
+                </div>
+              ` : ''}
+
+              <div class="grid sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100 text-xs">
+                <div><span class="text-slate-500">Venue:</span> <strong class="text-slate-900">${escapeHtml(ev.venue)}</strong></div>
+                <div><span class="text-slate-500">Event Date:</span> <strong class="text-slate-900">${escapeHtml(ev.event_date)}</strong></div>
+                <div><span class="text-slate-500">Deadline:</span> <strong class="text-teal-700">${escapeHtml(ev.deadline)} (${getCountdownText(ev.deadline)})</strong></div>
+                <div><span class="text-slate-500">Audience:</span> <strong class="text-slate-900">${escapeHtml(ev.department)} · ${escapeHtml(ev.target_year)}</strong></div>
+                <div class="sm:col-span-2"><span class="text-slate-500">Source Proof:</span> <strong class="text-slate-900">${escapeHtml(ev.source_doc)}</strong></div>
+              </div>
+
+              <div class="flex flex-wrap gap-2.5">
+                <button onclick="addToDeadlines('${ev.id}')" class="btn-primary px-4 py-2 text-xs" ${alreadyDeadline ? 'disabled style="opacity:0.6"' : ''}>
+                  ${alreadyDeadline ? '✓ Added to My Deadlines' : '+ Add to My Deadlines'}
+                </button>
+                <a href="${googleCalendarUrl(ev)}" target="_blank" rel="noopener" class="btn-secondary px-4 py-2 text-xs inline-flex items-center">Add to Google Calendar ↗</a>
+                <a href="${escapeHtml(ev.registration_link)}" target="_blank" rel="noopener" class="btn-secondary px-4 py-2 text-xs inline-flex items-center">Official Link ↗</a>
+                <button onclick="acknowledgeEvent('${ev.id}')" class="btn-secondary px-4 py-2 text-xs">${acked ? '✓ Acknowledged' : 'Acknowledge Notice'}</button>
+              </div>
+
+              <div class="pt-4 border-t border-slate-100 space-y-2">
+                <h3 class="text-xs font-bold uppercase text-slate-500">Approval & Verification History</h3>
+                ${(ev.history || []).map(h => `
+                  <div class="text-xs flex items-center justify-between py-1 border-b border-slate-50">
+                    <span><strong>${escapeHtml(h.actor)}</strong> — ${escapeHtml(h.action)} ${h.comment ? `(${escapeHtml(h.comment)})` : ''}</span>
+                    <span class="text-slate-400">${escapeHtml(h.time)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Right Panel: Request Verification -->
+            <div class="lg:col-span-4 space-y-4">
+              <div class="tw-card p-5 space-y-3">
+                <h2 class="font-bold text-slate-900 text-base">Unsure if this is genuine?</h2>
+                <p class="text-xs text-slate-600">Submit a verification ticket directly to the Placement / Admin cell. You can track and confirm resolution in your Inbox.</p>
+                <textarea id="verify-question-input" rows="3" placeholder="Ask admin e.g. Is this fee link official?" class="w-full p-3 rounded-xl border border-slate-200 text-xs"></textarea>
+                <button onclick="requestVerification('${ev.id}')" class="w-full btn-primary py-2.5 text-xs">Request Verification</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderDeadlines() {
+      const d = state.data;
+      const myRems = d.reminders.filter(r => r.user_id === d.currentUser.id);
+      return `
+        <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-7 tw-card p-6 space-y-4">
+            <h1 class="text-xl font-bold text-slate-900">My Deadlines</h1>
+            <div class="space-y-3">
+              ${d.deadlines.length ? d.deadlines.map(dl => `
+                <div class="p-4 rounded-2xl border border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <span class="pill bg-teal-50 text-teal-700 text-[11px] mb-1">${escapeHtml(dl.category)}</span>
+                    <h3 class="font-bold text-sm text-slate-900 ${dl.completed ? 'line-through text-slate-400' : ''}">${escapeHtml(dl.title)}</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Closes: ${escapeHtml(dl.deadline)} · <strong class="text-teal-600">${getCountdownText(dl.deadline)}</strong></p>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button onclick="nav('event-detail', { selectedEventId: '${dl.event_id}' })" class="btn-secondary px-3 py-1.5 text-xs">Open</button>
+                    <button onclick="toggleDeadline('${dl.id}')" class="btn-primary px-3 py-1.5 text-xs">${dl.completed ? 'Completed ✓' : 'Mark Done'}</button>
+                  </div>
+                </div>
+              `).join('') : `<p class="text-sm text-slate-500">No deadlines saved yet. Open any event in Explore to add it.</p>`}
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 tw-card p-6 space-y-4">
+            <h2 class="text-lg font-bold text-slate-900">Reminder Schedule (3d / 1d / 2h)</h2>
+            <div class="space-y-2.5">
+              ${myRems.map(r => `
+                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-800">${escapeHtml(r.event_title)}</span>
+                    <span class="pill ${r.status === 'Sent' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'} text-[11px]">${escapeHtml(r.status)}</span>
+                  </div>
+                  <p class="text-[11px] text-slate-600">${escapeHtml(r.offset_label)} · ${escapeHtml(r.message_preview)}</p>
+                  ${r.status !== 'Sent' ? `<button onclick="simulateReminder('${r.id}')" class="text-xs font-semibold text-teal-600 hover:underline">Remind me now (simulate WhatsApp)</button>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderScheduleAndCabins() {
+      const d = state.data;
+      const tt = d.timetable || [];
+      const cabins = d.facultyCabins || [];
+      const venues = d.venueSlots || [];
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold text-slate-900">Schedule, Faculty Cabins & Venues</h1>
+              <p class="text-xs text-slate-500 mt-0.5">Live class timetable, faculty free slots (no roaming across blocks), and auditorium availability.</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="nav('deadlines')" class="btn-secondary px-3.5 py-2 text-xs">My Deadlines</button>
+              <button onclick="nav('map')" class="btn-secondary px-3.5 py-2 text-xs">Campus Map</button>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-12 gap-6">
+            <!-- Class Timetable -->
+            <div class="lg:col-span-5 tw-card p-6 space-y-4">
+              <div class="flex items-center justify-between">
+                <h2 class="font-bold text-slate-900 text-base">Today's Class Timetable</h2>
+                <span class="pill bg-teal-50 text-teal-700 text-[11px]">CSE · 3rd Year</span>
+              </div>
+              <div class="space-y-2.5">
+                ${tt.map(row => `
+                  <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-3">
+                    <div>
+                      <p class="font-bold text-sm text-slate-900">${escapeHtml(row.subject)}</p>
+                      <p class="text-xs text-slate-500">${escapeHtml(row.room)} · ${escapeHtml(row.faculty_name)}</p>
+                    </div>
+                    <span class="text-xs font-semibold text-teal-700 shrink-0">${escapeHtml(row.time_slot)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Faculty Cabin Availability -->
+            <div class="lg:col-span-7 space-y-5">
+              <div class="tw-card p-6 space-y-4">
+                <h2 class="font-bold text-slate-900 text-base">Faculty Cabin Availability & Free Hours</h2>
+                <div class="grid sm:grid-cols-2 gap-3">
+                  ${cabins.map(c => `
+                    <div class="p-4 rounded-2xl border border-slate-200 space-y-1.5">
+                      <div class="flex items-center justify-between gap-2">
+                        <strong class="text-sm text-slate-900">${escapeHtml(c.faculty_name)}</strong>
+                        <span class="pill ${c.status === 'Available' ? 'bg-emerald-50 text-emerald-700' : c.status === 'On Break' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'} text-[11px]">${escapeHtml(c.status)}</span>
+                      </div>
+                      <p class="text-xs text-slate-600">Cabin <strong>${escapeHtml(c.cabin_no)}</strong> · Free: <strong>${escapeHtml(c.free_slot)}</strong></p>
+                      <p class="text-[11px] text-slate-500">${escapeHtml(c.note)}</p>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+
+              <!-- Auditorium & Hall Availability -->
+              <div class="tw-card p-6 space-y-3">
+                <h2 class="font-bold text-slate-900 text-base">Auditorium & Hall Availability</h2>
+                <div class="space-y-2">
+                  ${venues.map(v => `
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div>
+                        <strong class="text-slate-900">${escapeHtml(v.venue_name)}</strong>
+                        <span class="text-slate-500 ml-2">${escapeHtml(v.slot_time)}</span>
+                      </div>
+                      <span class="pill ${v.status === 'Available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${escapeHtml(v.status)} ${v.booked_by ? `(${escapeHtml(v.booked_by)})` : ''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderMap() {
+      const venues = [
+        { id: 'v_placement', name: 'Placement Cell', x: 18, y: 26 },
+        { id: 'v_auditorium', name: 'Main Auditorium', x: 52, y: 22 },
+        { id: 'v_cs_block', name: 'CS Seminar Hall', x: 76, y: 45 },
+        { id: 'v_innovation', name: 'Innovation Lab', x: 30, y: 68 },
+        { id: 'v_admin', name: 'Admin Block', x: 62, y: 74 }
+      ];
+      const activeVenue = venues.find(v => v.id === state.selectedVenueId) || venues[0];
+      const venueEvents = state.data.events.filter(e => e.venue_id === activeVenue.id);
+
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-7 tw-card p-6 space-y-4">
+            <h1 class="text-xl font-bold text-slate-900">Campus Map</h1>
+            <div class="relative w-full h-96 rounded-2xl bg-gradient-to-br from-teal-50 via-slate-50 to-emerald-50 border border-slate-200 overflow-hidden">
+              <!-- Schematic campus pathways -->
+              <svg class="absolute inset-0 w-full h-full opacity-40" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M 10 50 Q 50 40 90 50" stroke="#0D9488" stroke-width="1.2" fill="none" stroke-dasharray="2 2"/>
+                <path d="M 50 10 L 50 90" stroke="#0D9488" stroke-width="1.2" fill="none" stroke-dasharray="2 2"/>
+              </svg>
+              ${venues.map(v => {
+                const count = state.data.events.filter(e => e.venue_id === v.id).length;
+                const selected = v.id === activeVenue.id;
+                return `
+                  <button onclick="state.selectedVenueId='${v.id}';render()" style="left:${v.x}%; top:${v.y}%; transform:translate(-50%,-50%)"
+                    class="map-pin absolute px-3 py-2 rounded-xl shadow-md text-xs font-bold flex items-center gap-1.5 ${selected ? 'bg-teal-600 text-white ring-4 ring-teal-200' : 'bg-white text-slate-800 border border-slate-200'}">
+                    <span>📍 ${v.name}</span>
+                    <span class="px-1.5 py-0.5 rounded-full text-[10px] ${selected ? 'bg-white/20 text-white' : 'bg-teal-50 text-teal-700'}">${count}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 tw-card p-6 space-y-4">
+            <h2 class="text-lg font-bold text-slate-900">Events at ${escapeHtml(activeVenue.name)}</h2>
+            <div class="space-y-3">
+              ${venueEvents.length ? venueEvents.map(ev => `
+                <div class="p-4 rounded-2xl border border-slate-200 hover:border-teal-300 cursor-pointer space-y-1.5" onclick="nav('event-detail', { selectedEventId: '${ev.id}' })">
+                  <div class="flex items-center justify-between">${getStatusPill(ev.status)}<span class="text-xs text-slate-500">${escapeHtml(ev.event_date)}</span></div>
+                  <p class="font-bold text-sm text-slate-900">${escapeHtml(ev.title)}</p>
+                </div>
+              `).join('') : `<p class="text-sm text-slate-500">No events scheduled at this venue.</p>`}
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderCommunities() {
+      const d = state.data;
+      const user = d.currentUser;
+      const activeClub = d.clubs.find(c => c.id === state.selectedCommunityId) || d.clubs[0];
+      const posts = d.qaPosts.filter(p => p.community_id === activeClub.id);
+      const membership = d.communityMembers.find(m => m.community_id === activeClub.id && m.user_id === user.id);
+
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <!-- Left: Communities List -->
+          <div class="lg:col-span-5 space-y-4">
+            <h1 class="text-xl font-bold text-slate-900">Campus Communities</h1>
+            ${d.clubs.map(c => {
+              const mem = d.communityMembers.find(m => m.community_id === c.id && m.user_id === user.id);
+              const isSelected = c.id === activeClub.id;
+              return `
+                <div class="tw-card p-5 space-y-3 cursor-pointer ${isSelected ? 'ring-2 ring-teal-500' : ''}" onclick="state.selectedCommunityId='${c.id}';render()">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 class="font-bold text-slate-900">${escapeHtml(c.name)}</h3>
+                      <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(c.description)}</p>
+                    </div>
+                    <span class="pill bg-slate-100 text-slate-700 shrink-0">${c.member_count} members</span>
+                  </div>
+                  <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span class="text-[11px] text-slate-500">${c.join_mode === 'instant' ? 'Instant Join' : 'Moderator Approval'}</span>
+                    ${mem?.status === 'joined'
+                      ? `<span class="pill bg-emerald-50 text-emerald-700">✓ Joined</span>`
+                      : mem?.status === 'pending'
+                        ? `<span class="pill bg-amber-50 text-amber-700">Pending approval</span>`
+                        : `<button onclick="event.stopPropagation(); joinCommunity('${c.id}')" class="btn-primary px-3.5 py-1.5 text-xs">${c.join_mode === 'instant' ? 'Join Community' : 'Request to Join'}</button>`
+                    }
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- Right: WhatsApp Link + Community Q&A Board -->
+          <div class="lg:col-span-7 space-y-5">
+            <div class="tw-card p-6 space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-lg font-bold text-slate-900">${escapeHtml(activeClub.name)}</h2>
+                <span class="pill bg-teal-50 text-teal-700">Q&A Board</span>
+              </div>
+              ${membership?.status === 'joined' ? `
+                <div class="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1">
+                  <p class="text-xs font-bold text-emerald-800">WhatsApp Group Invite Unlocked</p>
+                  <a href="${escapeHtml(activeClub.whatsapp_link)}" target="_blank" rel="noopener" class="text-xs font-semibold text-teal-700 underline break-all">${escapeHtml(activeClub.whatsapp_link)}</a>
+                  <p class="text-[11px] text-amber-800 pt-1">⚠ Privacy notice: Your phone number will be visible to other members inside the WhatsApp group.</p>
+                </div>
+              ` : `
+                <p class="text-xs text-slate-500">Join this community to unlock the WhatsApp invite link. You can still browse and post on the Q&A board below.</p>
+              `}
+            </div>
+
+            <div class="tw-card p-6 space-y-4">
+              <h3 class="font-bold text-slate-900">Ask a Question</h3>
+              <form onsubmit="submitQaPost(event)" class="space-y-2.5">
+                <input name="title" required placeholder="Short question title..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+                <textarea name="body" rows="2" required placeholder="Add context for seniors, club reps, or faculty..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm"></textarea>
+                <button type="submit" class="btn-primary px-4 py-2 text-xs">Post Question</button>
+              </form>
+
+              <div class="space-y-4 pt-3 border-t border-slate-100">
+                ${posts.length ? posts.map(p => {
+                  const ans = d.qaAnswers.filter(a => a.post_id === p.id);
+                  return `
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <div class="flex items-start justify-between gap-3">
+                        <div>
+                          <p class="font-bold text-sm text-slate-900">${escapeHtml(p.title)}</p>
+                          <p class="text-xs text-slate-600 mt-1">${escapeHtml(p.body)}</p>
+                          <p class="text-[11px] text-slate-400 mt-1">Asked by ${escapeHtml(p.author_name)} · ${escapeHtml(p.created_at)}</p>
+                        </div>
+                        <button onclick="upvoteQa('${p.id}')" class="px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs font-bold text-teal-600 shrink-0">▲ ${p.upvotes}</button>
+                      </div>
+                      ${ans.map(a => `
+                        <div class="ml-3 pl-3 border-l-2 border-teal-200 text-xs space-y-0.5">
+                          <p class="text-slate-800">${escapeHtml(a.body)}</p>
+                          <p class="text-[11px] text-slate-500">— <strong>${escapeHtml(a.author_name)}</strong> (${escapeHtml(a.author_role)})</p>
+                        </div>
+                      `).join('')}
+                      <form onsubmit="submitQaAnswer(event, '${p.id}')" class="flex gap-2">
+                        <input name="body" required placeholder="Write an answer..." class="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs" />
+                        <button type="submit" class="btn-secondary px-3 py-1.5 text-xs">Reply</button>
+                      </form>
+                    </div>
+                  `;
+                }).join('') : `<p class="text-xs text-slate-500">No questions yet in this community.</p>`}
+              </div>
+            </div>
+          </div>
+        </main>
+      `;
+    }
+
+    function renderInbox() {
+      const d = state.data;
+      const user = d.currentUser;
+      const tickets = user.role === 'admin' ? d.tickets : d.tickets.filter(t => t.student_id === user.id);
+      return `
+        <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+          <h1 class="text-2xl font-bold text-slate-900">Verification Inbox & Closed-Loop Tickets</h1>
+          ${tickets.length ? tickets.map(t => `
+            <div class="tw-card p-6 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span class="text-xs font-bold text-teal-600">${escapeHtml(t.id)}</span>
+                  <h2 class="text-lg font-bold text-slate-900">${escapeHtml(t.event_title)}</h2>
+                  <p class="text-xs text-slate-500">Assigned to ${escapeHtml(t.assigned_admin_name)} · Updated ${escapeHtml(t.updated_at)}</p>
+                </div>
+                <span class="pill ${t.status === 'Closed' ? 'bg-emerald-50 text-emerald-700' : t.status === 'Resolved' ? 'bg-teal-50 text-teal-700' : 'bg-amber-50 text-amber-700'}">${escapeHtml(t.status)}</span>
+              </div>
+              <div class="space-y-2">
+                ${(t.messages || []).map(m => `
+                  <div class="p-3 rounded-xl ${m.role === 'admin' ? 'bg-teal-50/70 border border-teal-100' : 'bg-slate-50 border border-slate-100'} text-xs">
+                    <span class="font-bold text-slate-900">${escapeHtml(m.sender)}</span> <span class="text-slate-400">(${escapeHtml(m.time)})</span>
+                    <p class="text-slate-700 mt-1">${escapeHtml(m.text)}</p>
+                  </div>
+                `).join('')}
+              </div>
+              ${(t.status === 'Resolved' && user.role !== 'admin') ? `
+                <div class="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
+                  <p class="text-xs font-bold text-slate-800">Close the loop: Did this answer resolve your doubt?</p>
+                  <div class="flex flex-wrap gap-2">
+                    <button onclick="ticketFeedback('${t.id}', 'close')" class="btn-primary px-4 py-2 text-xs bg-emerald-600 hover:bg-emerald-700">Yes, resolved</button>
+                    <input id="reopen-note-${t.id}" placeholder="Optional reason if still a problem..." class="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs" />
+                    <button onclick="ticketFeedback('${t.id}', 'reopen')" class="btn-secondary px-4 py-2 text-xs text-rose-600">Still a problem</button>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `).join('') : `<div class="tw-card p-8 text-center text-sm text-slate-500">No tickets yet.</div>`}
+        </main>
+      `;
+    }
+
+    function renderClubManagement() {
+      const d = state.data;
+      const user = d.currentUser;
+      const myClub = d.clubs.find(c => c.rep_id === user.id) || d.clubs[0];
+      const coord = d.users.find(u => u.id === myClub.coordinator_id);
+      const myEvents = d.events.filter(e => e.author_id === user.id || e.club_id === myClub.id);
+      const pendingJoins = d.communityMembers.filter(m => m.status === 'pending');
+
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-5 tw-card p-6 space-y-4">
+            <div>
+              <span class="pill bg-teal-50 text-teal-700 mb-2">${escapeHtml(myClub.name)} · Faculty coordinator: ${escapeHtml(coord?.name || 'Prof. Ananya Rao')}</span>
+              <h1 class="text-xl font-bold text-slate-900">Create Club Event</h1>
+              <p class="text-xs text-teal-700 bg-teal-50 p-2.5 rounded-xl mt-2">
+                Routed to <strong>${escapeHtml(coord?.name || 'Prof. Ananya Rao')}</strong> for review. ${myClub.requires_admin_check ? 'An admin check follows before publishing.' : 'Publishes immediately after faculty approval.'}
+              </p>
+            </div>
+            <form id="club-event-form" onsubmit="createEventForm(event, true)" class="space-y-3">
+              <input type="hidden" name="club_id" value="${myClub.id}" />
+              <input name="title" required placeholder="Event Title" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <textarea name="description" rows="2" required placeholder="Event description..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm"></textarea>
+              <div class="grid grid-cols-2 gap-2.5">
+                <select name="category" class="px-3 py-2 rounded-xl border border-slate-200 text-xs"><option>Hackathons</option><option>Workshops</option><option>Clubs</option></select>
+                <select name="department" class="px-3 py-2 rounded-xl border border-slate-200 text-xs"><option>All</option><option>CSE</option><option>ECE</option></select>
+              </div>
+              <div class="grid grid-cols-2 gap-2.5">
+                <input name="event_date" type="datetime-local" value="2026-11-28T10:00" class="px-3 py-2 rounded-xl border border-slate-200 text-xs" />
+                <input name="deadline" type="datetime-local" value="2026-11-26T23:59" class="px-3 py-2 rounded-xl border border-slate-200 text-xs" />
+              </div>
+              <input name="venue" value="Main Auditorium" required placeholder="Venue" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <input name="registration_link" value="https://example.com/club-event" required placeholder="Registration Link" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <div>
+                <label class="text-xs font-semibold text-slate-600">Upload Poster / Approval PDF</label>
+                <input type="file" class="mt-1 text-xs w-full" />
+              </div>
+              <div id="club-ai-preview" class="hidden p-3 rounded-xl bg-teal-50 border border-teal-200 text-xs text-slate-700"></div>
+              <div class="flex gap-2">
+                <button type="button" onclick="previewAiSummary('club-event-form', 'club-ai-preview')" class="btn-secondary px-3 py-2.5 text-xs shrink-0">✨ AI Summarize</button>
+                <button type="submit" class="flex-1 btn-primary py-2.5 text-sm">Submit for Faculty Review</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="lg:col-span-7 space-y-5">
+            <div class="tw-card p-6 space-y-4">
+              <h2 class="text-lg font-bold text-slate-900">Club Submissions & History</h2>
+              ${myEvents.map(ev => `
+                <div class="p-4 rounded-2xl border border-slate-200 space-y-2.5">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-sm text-slate-900">${escapeHtml(ev.title)}</h3>
+                    ${getStatusPill(ev.status)}
+                  </div>
+                  <div class="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-center pt-1">
+                    <div class="p-1.5 rounded-lg bg-emerald-50 text-emerald-700">1. Club Rep Sent</div>
+                    <div class="p-1.5 rounded-lg ${ev.status === 'Pending faculty review' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : (ev.status === 'Changes requested' || ev.status === 'Rejected' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700')}">2. Faculty (${escapeHtml(coord?.name || 'Prof. Ananya Rao')})</div>
+                    <div class="p-1.5 rounded-lg ${ev.status === 'Pending admin review' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : (ev.status === 'Verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}">3. ${myClub.requires_admin_check ? 'Admin Check' : 'Published'}</div>
+                  </div>
+                  ${ev.reviewer_comment ? `<p class="text-xs bg-amber-50 text-amber-800 p-2.5 rounded-xl">Reviewer comment: ${escapeHtml(ev.reviewer_comment)}</p>` : ''}
+                  ${ev.status === 'Changes requested' ? `
+                    <form onsubmit="resubmitClubEvent(event, '${ev.id}')" class="space-y-2 pt-2 border-t border-slate-100">
+                      <input name="title" value="${escapeHtml(ev.title)}" class="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs" />
+                      <input name="description" value="${escapeHtml(ev.description)}" class="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs" />
+                      <button type="submit" class="btn-primary px-3.5 py-1.5 text-xs">Edit & Resubmit</button>
+                    </form>
+                  ` : ''}
+                </div>
+              `).join('')}
+            </div>
+
+            ${pendingJoins.length ? `
+              <div class="tw-card p-6 space-y-3">
+                <h2 class="text-base font-bold text-slate-900">Community Join Requests</h2>
+                ${pendingJoins.map(m => `
+                  <div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                    <span><strong>${escapeHtml(m.user_name)}</strong> requested to join</span>
+                    <button onclick="approveMember('${m.id}')" class="btn-primary px-3 py-1 text-xs">Approve</button>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        </main>
+      `;
+    }
+
+    function renderFacultyViews() {
+      const d = state.data;
+      const user = d.currentUser;
+      const assignedClubs = d.clubs.filter(c => c.coordinator_id === user.id);
+      const pendingClubEvents = d.events.filter(e => e.status === 'Pending faculty review' && assignedClubs.some(c => c.id === e.club_id));
+
+      if (state.view === 'club-approvals') {
+        return `
+          <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+            <h1 class="text-2xl font-bold text-slate-900">Club Approvals</h1>
+            <p class="text-xs text-slate-500">Showing events for your assigned clubs: ${assignedClubs.map(c => c.name).join(', ')}</p>
+            ${pendingClubEvents.length ? pendingClubEvents.map(ev => {
+              const club = d.clubs.find(c => c.id === ev.club_id);
+              return `
+                <div class="tw-card p-6 space-y-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <span class="pill bg-teal-50 text-teal-700 mb-1">${escapeHtml(club?.name)} · ${club?.requires_admin_check ? 'Admin check follows' : 'Direct publish'}</span>
+                      <h2 class="text-lg font-bold text-slate-900">${escapeHtml(ev.title)}</h2>
+                    </div>
+                    ${getStatusPill(ev.status)}
+                  </div>
+                  <p class="text-sm text-slate-600">${escapeHtml(ev.description)}</p>
+                  <input id="fac-comment-${ev.id}" placeholder="Add review comment (optional for approve, required for changes)..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                  <div class="flex flex-wrap gap-2">
+                    <button onclick="facultyReview('${ev.id}', 'approve')" class="btn-primary px-4 py-2 text-xs bg-emerald-600 hover:bg-emerald-700">Approve</button>
+                    <button onclick="facultyReview('${ev.id}', 'changes')" class="btn-secondary px-4 py-2 text-xs">Request Changes</button>
+                    <button onclick="facultyReview('${ev.id}', 'reject')" class="btn-secondary px-4 py-2 text-xs text-rose-600">Reject</button>
+                  </div>
+                </div>
+              `;
+            }).join('') : `<div class="tw-card p-8 text-center text-sm text-slate-500">All club requests reviewed!</div>`}
+          </main>
+        `;
+      }
+
+      // Faculty Publish & Reach
+      const myPublished = d.events.filter(e => e.author_id === user.id);
+      return `
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-5 space-y-5">
+            <div class="tw-card p-5 space-y-3">
+              <h2 class="text-base font-bold text-slate-900">My Cabin Availability (CS-204)</h2>
+              <form onsubmit="updateCabin(event, 'cab_1')" class="space-y-2.5">
+                <div class="flex gap-2">
+                  <select name="status" class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
+                    <option>Available</option><option>In Lecture</option><option>On Break</option>
+                  </select>
+                  <input name="note" placeholder="Status note (e.g. Free till 4:30 PM)" class="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs" />
+                </div>
+                <button type="submit" class="btn-primary px-4 py-1.5 text-xs">Update Cabin Status</button>
+              </form>
+            </div>
+            <div class="tw-card p-6 space-y-4">
+            <h1 class="text-xl font-bold text-slate-900">Publish Announcement / Event</h1>
+            <form id="faculty-event-form" onsubmit="createEventForm(event, false)" class="space-y-3">
+              <input name="title" required placeholder="Announcement Title" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <textarea name="description" rows="3" required placeholder="Details..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm"></textarea>
+              <div class="grid grid-cols-3 gap-2">
+                <select name="category" class="px-2.5 py-2 rounded-xl border border-slate-200 text-xs"><option>Workshops</option><option>Placements</option><option>Academics</option></select>
+                <select name="department" class="px-2.5 py-2 rounded-xl border border-slate-200 text-xs"><option>CSE</option><option>All</option></select>
+                <select name="target_year" class="px-2.5 py-2 rounded-xl border border-slate-200 text-xs"><option>3rd Year</option><option>All</option></select>
+              </div>
+              <input name="source_doc" placeholder="Circular / Source Reference #CSE-99" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <input name="venue" value="CS Seminar Hall" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <input name="event_date" type="hidden" value="2026-11-27 11:00" />
+              <input name="deadline" type="hidden" value="2026-11-25 17:00" />
+              <input name="registration_link" type="hidden" value="https://example.com/faculty-notice" />
+              <input type="file" class="text-xs w-full" />
+              <div id="fac-ai-preview" class="hidden p-3 rounded-xl bg-teal-50 border border-teal-200 text-xs text-slate-700"></div>
+              <div class="flex gap-2">
+                <button type="button" onclick="previewAiSummary('faculty-event-form', 'fac-ai-preview')" class="btn-secondary px-3 py-2.5 text-xs shrink-0">✨ AI Summarize</button>
+                <button type="submit" class="flex-1 btn-primary py-2.5 text-sm">Submit for Admin Verification</button>
+              </div>
+            </form>
+          </div>
+          </div>
+          <div class="lg:col-span-7 tw-card p-6 space-y-4">
+            <h2 class="text-lg font-bold text-slate-900">Reach & Acknowledgement Tracking</h2>
+            ${myPublished.map(ev => `
+              <div class="p-4 rounded-2xl border border-slate-200 flex items-center justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">${getStatusPill(ev.status)}</div>
+                  <p class="font-bold text-sm text-slate-900">${escapeHtml(ev.title)}</p>
+                </div>
+                <div class="text-right text-xs">
+                  <p class="font-bold text-teal-600">${ev.reached_count} reached</p>
+                  <p class="text-slate-500">${(ev.acknowledged_by || []).length} acknowledged</p>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </main>
+      `;
+    }
+
+    function renderAdminViews() {
+      const d = state.data;
+      if (state.view === 'admin-queue') {
+        const noticeQueue = d.events.filter(e => e.status === 'Pending review');
+        const clubQueue = d.events.filter(e => e.status === 'Pending admin review');
+        const nimbusDup = d.events.find(e => e.id === 'e_nimbus_dup');
+        return `
+          <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h1 class="text-2xl font-bold text-slate-900">Admin Verification Queue</h1>
+              <div class="flex gap-2">
+                <button onclick="state.adminTab='notices';render()" class="nav-pill ${state.adminTab === 'notices' ? 'active' : ''}">Notices & Duplicates (${noticeQueue.length})</button>
+                <button onclick="state.adminTab='clubs';render()" class="nav-pill ${state.adminTab === 'clubs' ? 'active' : ''}">Club Events (${clubQueue.length})</button>
+              </div>
+            </div>
+            <div class="space-y-4">
+              ${(state.adminTab === 'notices' ? noticeQueue : clubQueue).map(ev => `
+                <div class="tw-card p-6 space-y-3">
+                  <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-bold text-slate-900">${escapeHtml(ev.title)}</h2>
+                    ${getStatusPill(ev.status)}
+                  </div>
+                  <p class="text-sm text-slate-600">${escapeHtml(ev.description)}</p>
+                  <p class="text-xs text-slate-500">Source: <strong>${escapeHtml(ev.source_doc)}</strong></p>
+                  <input id="adm-comment-${ev.id}" placeholder="Verification note for students & audit log..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                  <div class="flex flex-wrap gap-2">
+                    <button onclick="adminVerify('${ev.id}', 'verify')" class="btn-primary px-4 py-2 text-xs bg-emerald-600 hover:bg-emerald-700">Verify & Publish</button>
+                    ${(ev.id === 'e_nimbus' && nimbusDup) ? `<button onclick="adminVerify('${ev.id}', 'verify', 'e_nimbus_dup')" class="btn-primary px-4 py-2 text-xs">Verify & Merge Duplicate</button>` : ''}
+                    ${state.adminTab === 'clubs' ? `<button onclick="adminVerify('${ev.id}', 'send_back')" class="btn-secondary px-4 py-2 text-xs">Send Back</button>` : ''}
+                    <button onclick="adminVerify('${ev.id}', 'reject')" class="btn-secondary px-4 py-2 text-xs text-rose-600">Reject (Mark Fake)</button>
+                  </div>
+                </div>
+              `).join('') || `<div class="tw-card p-8 text-center text-sm text-slate-500">Queue is clear!</div>`}
+            </div>
+          </main>
+        `;
+      }
+
+      if (state.view === 'admin-manage') {
+        return `
+          <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+            <h1 class="text-2xl font-bold text-slate-900">Manage Roles, Clubs & Tags</h1>
+            <div class="grid lg:grid-cols-12 gap-6">
+              <div class="lg:col-span-7 tw-card p-6 space-y-4">
+                <h2 class="text-lg font-bold text-slate-900">Clubs & Approval Rules</h2>
+                ${d.clubs.map(c => `
+                  <form onsubmit="adminSaveClub(event, '${c.id}')" class="p-4 rounded-2xl border border-slate-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                      <strong class="text-sm text-slate-900">${escapeHtml(c.name)}</strong>
+                      <button type="submit" class="btn-primary px-3 py-1 text-xs">Save</button>
+                    </div>
+                    <div class="grid sm:grid-cols-3 gap-2 text-xs">
+                      <label class="flex items-center gap-2"><input type="checkbox" name="requires_admin_check" ${c.requires_admin_check ? 'checked' : ''} /> Admin check</label>
+                      <select name="join_mode" class="px-2 py-1 rounded-lg border border-slate-200">
+                        <option value="instant" ${c.join_mode === 'instant' ? 'selected' : ''}>Instant Join</option>
+                        <option value="request" ${c.join_mode === 'request' ? 'selected' : ''}>Request to Join</option>
+                      </select>
+                      <select name="coordinator_id" class="px-2 py-1 rounded-lg border border-slate-200">
+                        <option value="u_faculty" selected>Prof. Ananya Rao</option>
+                      </select>
+                      <input type="hidden" name="rep_id" value="${escapeHtml(c.rep_id)}" />
+                    </div>
+                  </form>
+                `).join('')}
+              </div>
+
+              <div class="lg:col-span-5 tw-card p-6 space-y-4">
+                <h2 class="text-lg font-bold text-slate-900">Auditorium & Venue Slots</h2>
+                <div class="space-y-2 pb-4 border-b border-slate-100">
+                  ${(d.venueSlots || []).map(v => `
+                    <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 text-xs">
+                      <div><strong>${escapeHtml(v.venue_name)}</strong><p class="text-[11px] text-slate-500">${escapeHtml(v.slot_time)}</p></div>
+                      <button onclick="toggleVenue('${v.id}')" class="pill ${v.status === 'Available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}">${escapeHtml(v.status)}</button>
+                    </div>
+                  `).join('')}
+                </div>
+                <h2 class="text-lg font-bold text-slate-900">Canonical Tag List</h2>
+                <form onsubmit="adminAddTag(event)" class="flex gap-2">
+                  <input name="name" required placeholder="New tag e.g. Cloud" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs" />
+                  <input type="hidden" name="color" value="indigo" />
+                  <button type="submit" class="btn-primary px-3.5 py-2 text-xs">Add Tag</button>
+                </form>
+                <div class="flex flex-wrap gap-2">
+                  ${d.tags.map(t => `
+                    <button onclick="adminToggleTag('${t.id}')" class="pill ${t.active ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-slate-100 text-slate-400 line-through'}">
+                      #${escapeHtml(t.name)}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          </main>
+        `;
+      }
+
+      // Automation, Outbox & Audit Log
+      return `
+        <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h1 class="text-2xl font-bold text-slate-900">Automation, Outbox & Audit Log</h1>
+            <div class="flex gap-2">
+              <button onclick="state.adminAutoTab='reminders';render()" class="nav-pill ${state.adminAutoTab === 'reminders' ? 'active' : ''}">Reminder Queue (${d.reminders.length})</button>
+              <button onclick="state.adminAutoTab='outbox';render()" class="nav-pill ${state.adminAutoTab === 'outbox' ? 'active' : ''}">Outbox (${d.outbox.length})</button>
+              <button onclick="state.adminAutoTab='audit';render()" class="nav-pill ${state.adminAutoTab === 'audit' ? 'active' : ''}">Audit Log (${d.auditLog.length})</button>
+            </div>
+          </div>
+
+          <div class="tw-card p-6 overflow-x-auto">
+            ${state.adminAutoTab === 'reminders' ? `
+              <table class="w-full text-left text-xs">
+                <thead><tr class="border-b border-slate-200 text-slate-500"><th class="py-2">Event</th><th>Offset</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  ${d.reminders.map(r => `
+                    <tr class="border-b border-slate-100">
+                      <td class="py-2.5 font-semibold text-slate-900">${escapeHtml(r.event_title)}</td>
+                      <td>${escapeHtml(r.offset_label)}</td>
+                      <td><span class="pill ${r.status === 'Sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${escapeHtml(r.status)}</span></td>
+                      <td>${r.status !== 'Sent' ? `<button onclick="simulateReminder('${r.id}')" class="text-teal-600 font-semibold">Simulate Send</button>` : 'Done'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : state.adminAutoTab === 'outbox' ? `
+              <table class="w-full text-left text-xs">
+                <thead><tr class="border-b border-slate-200 text-slate-500"><th class="py-2">Channel</th><th>Recipient</th><th>Subject</th><th>Message</th><th>Time</th></tr></thead>
+                <tbody>
+                  ${d.outbox.map(o => `
+                    <tr class="border-b border-slate-100">
+                      <td class="py-2.5"><span class="pill bg-teal-50 text-teal-700">${escapeHtml(o.channel)}</span></td>
+                      <td>${escapeHtml(o.recipient)}</td>
+                      <td class="font-semibold">${escapeHtml(o.subject)}</td>
+                      <td class="text-slate-600">${escapeHtml(o.body)}</td>
+                      <td class="text-slate-400">${escapeHtml(o.created_at)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : `
+              <table class="w-full text-left text-xs">
+                <thead><tr class="border-b border-slate-200 text-slate-500"><th class="py-2">Actor</th><th>Action</th><th>Target</th><th>Comment</th><th>Time</th></tr></thead>
+                <tbody>
+                  ${d.auditLog.map(a => `
+                    <tr class="border-b border-slate-100">
+                      <td class="py-2.5 font-semibold">${escapeHtml(a.actor_name)} (${escapeHtml(a.actor_role)})</td>
+                      <td><span class="pill bg-slate-100 text-slate-700">${escapeHtml(a.action)}</span></td>
+                      <td>${escapeHtml(a.target_title)}</td>
+                      <td class="text-slate-600">${escapeHtml(a.comment)}</td>
+                      <td class="text-slate-400">${escapeHtml(a.created_at)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            `}
+          </div>
+        </main>
+      `;
+    }
+
+    function renderNotifications() {
+      const notifs = state.data.notifications;
+      return `
+        <main class="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-4">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-slate-900">Notifications</h1>
+            <button onclick="markAllRead()" class="btn-secondary px-3.5 py-1.5 text-xs">Mark all read</button>
+          </div>
+          <div class="tw-card p-5 space-y-3">
+            ${notifs.length ? notifs.map(n => `
+              <div class="p-3.5 rounded-xl border ${n.read ? 'bg-white border-slate-100' : 'bg-teal-50/50 border-teal-200'} text-xs">
+                <div class="flex items-center justify-between font-bold text-slate-900"><span>${escapeHtml(n.title)}</span><span class="text-slate-400 font-normal">${escapeHtml(n.created_at)}</span></div>
+                <p class="text-slate-600 mt-1">${escapeHtml(n.body)}</p>
+              </div>
+            `).join('') : `<p class="text-sm text-slate-500">All caught up!</p>`}
+          </div>
+        </main>
+      `;
+    }
+
+    function render() {
+      const root = document.getElementById('app');
+      if (!state.data) {
+        root.innerHTML = `<div class="p-12 text-center text-sm text-slate-500">Loading UniSync...</div>`;
+        return;
+      }
+      let body = '';
+      if (!state.userId && state.view !== 'login') {
+        body = renderLanding();
+      } else if (state.view === 'landing') {
+        body = renderLanding();
+      } else if (state.view === 'login') {
+        body = renderLogin();
+      } else if (state.view === 'onboarding' || state.view === 'settings') {
+        body = renderOnboarding();
+      } else if (state.view === 'home') {
+        body = renderHome();
+      } else if (state.view === 'explore') {
+        body = renderExplore();
+      } else if (state.view === 'event-detail') {
+        body = renderEventDetail();
+      } else if (state.view === 'deadlines') {
+        body = renderDeadlines();
+      } else if (state.view === 'schedule') {
+        body = renderScheduleAndCabins();
+      } else if (state.view === 'map') {
+        body = renderMap();
+      } else if (state.view === 'communities') {
+        body = renderCommunities();
+      } else if (state.view === 'inbox') {
+        body = renderInbox();
+      } else if (state.view === 'club-management') {
+        body = renderClubManagement();
+      } else if (state.view === 'faculty-publish' || state.view === 'club-approvals') {
+        body = renderFacultyViews();
+      } else if (state.view.startsWith('admin-')) {
+        body = renderAdminViews();
+      } else if (state.view === 'notifications') {
+        body = renderNotifications();
+      } else {
+        body = renderHome();
+      }
+      root.innerHTML = renderHeader() + body;
+    }
+
+    // Boot
+    refreshData();
+  </script>
+</body>
+</html>

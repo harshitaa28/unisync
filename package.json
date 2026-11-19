@@ -1,0 +1,12 @@
+{
+  "name": "unisync",
+  "version": "1.0.0",
+  "description": "UniSync campus verification, deadlines, communities, and club approval platform with Node.js + SQLite backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
